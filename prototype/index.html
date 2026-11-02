@@ -1,0 +1,105 @@
+<!doctype html>
+<!-- PROTOTYPE, throw away. Four logo-free headers for the GitHub profile, switchable via ?variant=, in a mock of the profile page. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Profile header prototype</title>
+<style>
+  :root { --bg:#fff; --fg:#1f2328; --muted:#59636e; --line:#d1d9e0; --link:#0969da; }
+  [data-theme=dark] { --bg:#0d1117; --fg:#f0f6fc; --muted:#9198a1; --line:#3d444d; --link:#4493f8; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; padding-bottom:90px; }
+  a { color:var(--link); text-decoration:none; }
+  .wrap { max-width:1280px; margin:0 auto; padding:32px 16px; display:grid; grid-template-columns:296px minmax(0,1fr); gap:24px; }
+  .avatar { width:100%; aspect-ratio:1; border-radius:50%; border:1px solid var(--line); background:var(--line); display:block; object-fit:cover; }
+  .name { font-size:24px; font-weight:600; line-height:1.25; margin:16px 0 0; }
+  .user { font-size:20px; font-weight:300; color:var(--muted); line-height:1.25; }
+  .bio { margin:16px 0; font-size:16px; }
+  .readme { border:1px solid var(--line); border-radius:6px; padding:24px; }
+  .crumb { font-size:12px; color:var(--muted); margin-bottom:12px; font-family:ui-monospace,Menlo,monospace; }
+  .readme img { width:100%; display:block; margin-bottom:16px; }
+  .readme p { font-size:16px; margin:0 0 16px; }
+  .readme h3 { font-size:20px; margin:24px 0 16px; }
+  .readme ul { font-size:16px; padding-left:2em; margin:0 0 16px; }
+  .readme li { margin-top:4px; }
+  h2.head { font-size:32px; line-height:1.25; font-weight:600; margin:0 0 8px; padding-bottom:8px; border-bottom:1px solid var(--line); }
+  .pins { margin-top:24px; }
+  .pins h2 { font-size:16px; font-weight:400; margin:0 0 8px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:16px; }
+  .pin { border:1px solid var(--line); border-radius:6px; padding:16px; }
+  .pin b { color:var(--link); }
+  .pin div { font-size:12px; color:var(--muted); margin-top:8px; }
+  #bar { position:fixed; left:50%; bottom:16px; transform:translateX(-50%); background:#111; color:#fff; border-radius:999px; padding:6px 8px; display:flex; align-items:center; gap:8px; box-shadow:0 6px 24px rgba(0,0,0,.45); font-size:13px; white-space:nowrap; z-index:9; max-width:calc(100vw - 16px); }
+  #bar button { background:#333; color:#fff; border:0; border-radius:999px; min-width:36px; height:36px; font-size:15px; cursor:pointer; padding:0 10px; }
+  #label { min-width:0; overflow:hidden; text-overflow:ellipsis; }
+  @media (max-width:767px) { .wrap { grid-template-columns:1fr; } .avatar { width:96px; } .readme { padding:16px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <aside>
+    <img class="avatar" src="https://github.com/qsang793.png" alt="">
+    <div class="name">Harry Sang</div>
+    <div class="user">qsang793</div>
+    <div class="bio">Software Engineer. Agents and developer tools.</div>
+  </aside>
+  <main>
+    <div class="readme">
+      <div class="crumb">qsang793 / README.md</div>
+      <div id="head"></div>
+      <div id="body">
+      <p><strong>Software Engineer.</strong> I build agents and developer tools for Claude Code. By day, I work on simulation environments for humanoid robots.</p>
+      <h3>Selected work</h3>
+      <ul>
+        <li><a href="#"><b>claude-usage-limits</b></a>: a Claude Code mod that shows 5-hour and weekly usage, exact reset times and a prompt cache countdown above the prompt.</li>
+        <li><a href="#"><b>ui-workflow-skills</b></a>: a Claude Code plugin (beta) with 8 skills that let non-technical stakeholders drive UI improvements through Lovable or Google AI Studio.</li>
+        <li><a href="#"><b>summarization-to-wiki</b></a>: a multi-agent pipeline that turns long PDF books into interlinked Obsidian wikis.</li>
+      </ul>
+      <p><strong>Working with:</strong> Python · TypeScript · Claude Code · Isaac Sim · MuJoCo</p>
+      </div>
+      <a href="#">LinkedIn</a>
+    </div>
+    <section class="pins">
+      <h2>Pinned</h2>
+      <div class="grid">
+        <div class="pin"><b>claude-usage-limits</b><div>TypeScript · 3 stars</div></div>
+        <div class="pin"><b>ui-workflow-skills</b><div>HTML</div></div>
+        <div class="pin"><b>summarization-to-wiki</b><div>Python</div></div>
+      </div>
+    </section>
+  </main>
+</div>
+<div id="bar">
+  <button id="prev" aria-label="Previous variant">←</button>
+  <span id="label"></span>
+  <button id="next" aria-label="Next variant">→</button>
+  <button id="theme" aria-label="Toggle light and dark"></button>
+</div>
+<script>
+  const V = {
+    A: { name: 'Terminal card', html: '<img src="a.svg" alt="Harry Sang. Software Engineer, agents and developer tools.">' },
+    B: { name: 'Constellation', html: '<img src="b.svg" alt="Harry Sang. Software Engineer, agents and developer tools.">' },
+    C: { name: 'Big name, spark trail', html: '<img src="c.svg" alt="Harry Sang. Software Engineer, agents and developer tools.">' },
+    D: { name: 'Text only', html: '<h2 class="head">✦ Harry Sang</h2>' },
+  };
+  const keys = Object.keys(V), q = new URLSearchParams(location.search);
+  let cur = V[q.get('variant')] ? q.get('variant') : 'A';
+  let theme = q.get('theme') === 'light' ? 'light' : 'dark';
+  function render() {
+    document.documentElement.dataset.theme = theme;
+    document.getElementById('head').innerHTML = V[cur].html;
+    document.getElementById('body').hidden = cur === 'A';
+    document.getElementById('label').textContent = cur + ' (' + V[cur].name + ')';
+    document.getElementById('theme').textContent = theme;
+    history.replaceState(null, '', '?variant=' + cur + '&theme=' + theme);
+  }
+  function step(d) { cur = keys[(keys.indexOf(cur) + d + keys.length) % keys.length]; render(); }
+  prev.onclick = () => step(-1);
+  next.onclick = () => step(1);
+  document.getElementById('theme').onclick = () => { theme = theme === 'dark' ? 'light' : 'dark'; render(); };
+  addEventListener('keydown', e => { if (e.key === 'ArrowLeft') step(-1); if (e.key === 'ArrowRight') step(1); });
+  render();
+</script>
+</body>
+</html>
