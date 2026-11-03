@@ -1,4 +1,10 @@
-<picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/qsang793/qsang793/output/hero-dark.svg"><img src="https://raw.githubusercontent.com/qsang793/qsang793/output/hero-light.svg" width="100%" alt="Harry Sang. Software engineer. I build agents and developer tools. By day, I simulate humanoid robots. A clock with one tick per day of the past year surrounds the words Return by Death in Japanese."></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/qsang793/qsang793/output/clock-dark.svg"><img src="https://raw.githubusercontent.com/qsang793/qsang793/output/clock-light.svg" align="right" width="150" alt="A clock with one tick per day of the past year, around the Japanese words for Return by Death."></picture>
+
+### Harry Sang
+
+Software engineer.\
+I build agents and developer tools.\
+By day, I simulate humanoid robots.
 
 ### Stack
 
@@ -6,7 +12,7 @@
 
 ### Activity
 
-<picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/qsang793/qsang793/output/city-dark.svg"><img src="https://raw.githubusercontent.com/qsang793/qsang793/output/city-light.svg" width="100%" alt="The past year of contributions drawn as an isometric city, one block per day. Taller blocks mean more contributions."></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/qsang793/qsang793/output/city-dark.svg"><img src="https://raw.githubusercontent.com/qsang793/qsang793/output/city-light.svg" width="100%" alt="My past year of contributions drawn as an isometric city, one block per day. Taller blocks mean more contributions."></picture>
 
 ### Off the clock
 
