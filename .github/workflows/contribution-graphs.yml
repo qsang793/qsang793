@@ -24,14 +24,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # The same year from yoshi389111/github-profile-3d-contrib, in Tokyo Night colors, to compare against our city.
-      - uses: yoshi389111/github-profile-3d-contrib@v0.9.3
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          USERNAME: ${{ github.repository_owner }}
-          SETTING_JSON: scripts/3d-contrib.json
-      - run: cp profile-3d-contrib/*.svg dist/
-
       # Generated images live on their own branch so main stays free of bot commits.
       - uses: crazy-max/ghaction-github-pages@v5
         with:

@@ -20,12 +20,6 @@ By day, I simulate humanoid robots.
 
 </details>
 
-<details><summary>3D view</summary>
-
-<picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/qsang793/qsang793/output/contrib3d-dark.svg"><img src="https://raw.githubusercontent.com/qsang793/qsang793/output/contrib3d-light.svg" width="100%" alt="The past year of contributions as 3D blocks, with contribution type and language charts, made with github-profile-3d-contrib."></picture>
-
-</details>
-
 ### Off the clock
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/qsang793/qsang793/output/anime-dark.svg"><img src="https://raw.githubusercontent.com/qsang793/qsang793/output/anime-light.svg" width="100%" alt="Favorite anime, one line each. Zero Two, DARLING in the FRANXX: “Be my darling.” Rem, Re:Zero: “Let's start from zero.” Megumi, Jujutsu Kaisen: “I save people unequally.” Kaneki, Tokyo Ghoul: “What's 1000 minus 7?”"></picture>
