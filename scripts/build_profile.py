@@ -163,28 +163,33 @@ def intro(c):
         for d in span:
             marks.append(marks[-1] + d)
         a, b, cc, d, e = (100 * m / total for m in marks)
-        # Hidden goes two characters past the left edge so the cursor leaves the canvas too.
-        hidden, prompt = f"translateX({-full - 2 * cw:.1f}px)", f"translateX({pre - full:.1f}px)"
         # One step per character, typing and rewinding alike.
         step = f"steps({len(s)},end)"
-        css.append(f"@keyframes l{i}{{0%{{transform:{hidden};animation-timing-function:step-end}}"
-                   f"{a:.3f}%{{transform:{prompt};animation-timing-function:{step}}}"
-                   f"{b:.3f}%{{transform:none}}"
-                   f"{cc:.3f}%{{transform:none;animation-timing-function:{step}}}"
-                   f"{d:.3f}%{{transform:{prompt};animation-timing-function:step-end}}"
-                   f"{e:.3f}%,100%{{transform:{hidden}}}}}")
-        # Without animation (reduced motion), only the first loop shows, fully typed.
-        anim = f'class="loop" style="animation-name:l{i}{";transform:" + hidden if i else ""}"'
-        out.append(f'<clipPath id="c{i}"><rect {anim} width="{full:.1f}" height="{h}"/></clipPath>'
-                   f'<text x="0" y="{y}" textLength="{full:.1f}" lengthAdjust="spacing" clip-path="url(#c{i})">'
+        # The cursor moves and the text's right edge is clipped in step. WebKit (Safari, the GitHub app) ignores CSS
+        # transforms inside a clipPath, so the text clips itself, with a polygon measured from its left edge since browsers
+        # disagree on where its right edge is. Hidden takes the cursor two characters past the left edge.
+        edge = lambda x: f"polygon(0 -40px,{x:.1f}px -40px,{x:.1f}px 80px,0 80px)"
+        for name, prop, hidden, prompt, shown in (
+                (f"l{i}", "transform", f"translateX({-full - 2 * cw:.1f}px)", f"translateX({pre - full:.1f}px)", "none"),
+                (f"k{i}", "clip-path", edge(0), edge(pre), edge(full + cw))):
+            css.append(f"@keyframes {name}{{0%{{{prop}:{hidden};animation-timing-function:step-end}}"
+                       f"{a:.3f}%{{{prop}:{prompt};animation-timing-function:{step}}}"
+                       f"{b:.3f}%{{{prop}:{shown}}}"
+                       f"{cc:.3f}%{{{prop}:{shown};animation-timing-function:{step}}}"
+                       f"{d:.3f}%{{{prop}:{prompt};animation-timing-function:step-end}}"
+                       f"{e:.3f}%,100%{{{prop}:{hidden}}}}}")
+        # Without animation (reduced motion, or a renderer that skips it), only the first loop shows, fully typed: the
+        # others are hidden by attribute and only an animation shows them.
+        show = ' class="on" visibility="hidden"' if i else ""
+        out.append(f'<g{show}><text class="loop" style="animation-name:k{i}" x="0" y="{y}" textLength="{full:.1f}" lengthAdjust="spacing">'
                    f'<tspan fill="{c["witch"]}">{escape(p)}</tspan><tspan fill="{c["ink"]}">{escape(s)}</tspan></text>'
-                   f'<g {anim}><rect class="cursor" x="{full + 2:.1f}" y="{y - size + 3}" width="{cw * .6:.1f}" height="{size + 2}" fill="{c["now"]}"/></g>')
+                   f'<g class="loop" style="animation-name:l{i}"><rect class="cursor" x="{full + 2:.1f}" y="{y - size + 3}" width="{cw * .6:.1f}" height="{size + 2}" fill="{c["now"]}"/></g></g>')
         t = marks[-1]
     alt = "One-liners typed and rewound in a loop: " + " ".join(LINES)
     style = (f"<style>text{{font-family:{MONO};font-size:{size}px;white-space:pre}}"
              f".loop{{animation:{total:.2f}s infinite}}.cursor{{animation:blink 1s step-end infinite}}"
-             "@keyframes blink{50%{opacity:0}}" + "".join(css) +
-             "@media (prefers-reduced-motion:reduce){.loop,.cursor{animation:none}}</style>")
+             "@keyframes blink{50%{opacity:0}}.on{animation:on 1s infinite}@keyframes on{from,to{visibility:visible}}" + "".join(css) +
+             "@media (prefers-reduced-motion:reduce){.loop,.cursor,.on{animation:none}}</style>")
     return svg(WIDTH, h, alt, style + "".join(out))
 
 
@@ -421,9 +426,11 @@ def subaru(cells, c, start, feel=None):
         css.append(f".sbw{{transform-box:fill-box;transform-origin:center;{loop('sbw', 'ease-out')}}}")
         front.append(f'<ellipse class="sbw" cx="{x:.1f}" cy="{y:.1f}" rx="30" ry="10" fill="{c["witch"]}"/>')
     gx, gy = f["ground"]
+    # The outline is its own layer under an unfiltered Subaru: WebKit (Safari, the GitHub app) renders filters at low
+    # resolution, and a Subaru passed through one comes out blurred and washed out.
     defs = ('<defs><filter id="sbl" x="-20%" y="-20%" width="140%" height="140%">'
                f'<feMorphology in="SourceAlpha" operator="dilate" radius=".8" result="d"/><feFlood flood-color="{c["ink"]}"/>'
-               '<feComposite in2="d" operator="in"/><feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge></filter>'
+               '<feComposite in2="d" operator="in"/></filter>'
                f'<filter id="sbt"><feFlood flood-color="{c["witch"]}"/><feComposite in2="SourceAlpha" operator="in"/></filter>'
                # One frame's window onto the strip, which slides under it.
                f'<clipPath id="sbc"><rect x="{-gx * k:.1f}" y="{-gy * k:.1f}" width="{fw:.1f}" height="{f["size"][1] * k:.1f}"/></clipPath></defs>')
@@ -437,13 +444,14 @@ def subaru(cells, c, start, feel=None):
         for j in (3, 2, 1):
             front.append(f'<g class="sbg" style="animation-delay:{start + .06 * j:.2f}s" filter="url(#sbt)">{body(start + .06 * j)}</g>')
     # He is drawn after each weekday row and shown only after the row he is in, so the rows in front hide him.
-    slots = [f'<g class="sb sbr{d}"><g class="sbo" filter="url(#sbl)">{body()}</g></g>' for d in range(7)]
+    slots = [f'<g class="sb sbr{d}"><g class="sbo"><g filter="url(#sbl)">{body()}</g>{body()}</g></g>' for d in range(7)]
     slots[0] = defs + slots[0]
     slots[6] += f'<g class="sb">{"".join(front)}</g>'
     # Reduced motion: he just stands on today's roof.
     x, y = at(cur)
-    slots[cur[1]] += (f'<g class="sbx" transform="translate({x:.1f} {y:.1f})" filter="url(#sbl)"><g class="sz"><g clip-path="url(#sbc)">'
-                      f'<use href="#sb" x="{-fi["stand"] * fw:.1f}"/></g></g></g>')
+    stand = f'<g clip-path="url(#sbc)"><use href="#sb" x="{-fi["stand"] * fw:.1f}"/></g>'
+    slots[cur[1]] += (f'<g class="sbx" transform="translate({x:.1f} {y:.1f})"><g class="sz">'
+                      f'<g filter="url(#sbl)">{stand}</g>{stand}</g></g>')
     css.append(f".sbx{{display:none}}@media (prefers-reduced-motion:reduce){{.sb{{display:none}}.sbx{{display:inline}}}}"
                f"{NARROW}{{.sz{{transform:scale(1.6)}}}}")
     return "".join(css), slots, said
