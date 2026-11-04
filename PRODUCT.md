@@ -26,8 +26,8 @@ The whole profile is told through one theme, 死に戻り (Return by Death): die
 - Sections: Clock, intro (one-liners typed and rewound), Stack, City (Activity), Off the clock (anime). Terms as defined in GLOSSARY.md.
 - Contributions come from the GitHub GraphQL API (the GitLab copy uses GitLab's calendar.json). Only the past year is available.
 - Anime portraits are official art kept downscaled in `assets/anime/`, an accepted takedown risk (docs/adr/0002).
+- Subaru's City frames are renders of a fan VRM model kept in `assets/subaru/`; the model itself is never committed (docs/adr/0003).
 - CI runs stdlib Python only; anything needing a library is precomputed into the repo.
-- Undecided: the glossary and mockup have used "Harry Sang"; the display name is Sang Nguyen.
 
 ## Brand Commitments
 - Display name: Sang Nguyen.
