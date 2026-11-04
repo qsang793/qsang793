@@ -10,13 +10,17 @@ from xml.sax.saxutils import escape, quoteattr
 USER = "qsang793"
 HERE = pathlib.Path(__file__).parent
 ICONS = json.loads((HERE / "icons.json").read_text())
+# The kanji as outlines from Noto Serif JP (SIL OFL), so they look the same without a Japanese font installed.
+GLYPHS = json.loads((HERE / "glyphs.json").read_text())
 WIDTH, PAD = 846, 16
-# Tokyo Night for dark, Tokyo Night Day for light (folke/tokyonight.nvim palettes).
+# Below this rendered width (a phone), images swap to larger text; the 846 viewBox shrinks to ~0.4 there.
+NARROW = "@media (max-width:600px)"
+# Tokyo Night for dark, Tokyo Night Day for light (folke/tokyonight.nvim palettes),
+# with soft and the light witch darkened so small text passes WCAG AA on the panel.
 THEMES = {
-    "dark": dict(ink="#c0caf5", soft="#737aa2", line="#3b4261", canvas="#16161e", tile="#1a1b26", faint="#292e42", witch="#bb9af7", neon="#7aa2f7", south="#9d7cd8", east="#7058b8", now="#ff9e64"),
-    "light": dict(ink="#3760bf", soft="#68709a", line="#a8aecb", canvas="#e9e9ed", tile="#e1e2e7", faint="#c4c8da", witch="#9854f1", neon="#2e7de9", south="#7847bd", east="#5f37a0", now="#b15c00"),
+    "dark": dict(ink="#c0caf5", soft="#8089b3", line="#3b4261", canvas="#16161e", tile="#1a1b26", faint="#292e42", witch="#bb9af7", neon="#7aa2f7", south="#9d7cd8", east="#7058b8", now="#ff9e64"),
+    "light": dict(ink="#3760bf", soft="#585f88", line="#a8aecb", canvas="#e9e9ed", tile="#e1e2e7", faint="#c4c8da", witch="#7f3fd9", neon="#2e7de9", south="#7847bd", east="#5f37a0", now="#b15c00"),
 }
-MINCHO = "'Hiragino Mincho ProN','Yu Mincho','Noto Serif CJK JP',serif"
 FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans',Helvetica,Arial,sans-serif"
 PORTRAITS = HERE.parent / "assets" / "anime"
 # (quote, character, show, portrait); the first one gets the big panel.
@@ -28,13 +32,14 @@ ANIME = [
     ("What's 1000 minus 7?", "Kaneki", "Tokyo Ghoul", "kaneki.jpg"),
 ]
 # One line per loop: typed, held, then rewound before the next loop tries again.
+# The robot line goes first: it is the one that is about the actual work, and reduced motion shows only it.
 LINES = [
+    "My robot fell 3,000 times today. It's learning.",
     "My agents work while I sleep. That's the whole business plan.",
     "Hey Claude, build me an app. No mistakes.",
     "Vibe coding by day, vibe debugging by night.",
     "90% sleeping, 10% telling the AI it's wrong.",
     "Job title: engineer. Actual job: pressing Enter.",
-    "My robot fell 3,000 times today. It's learning.",
 ]
 MONO = "ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace"
 # (label, Simple Icons slug); MuJoCo has no logo there, so it gets a monogram.
@@ -67,7 +72,10 @@ def fetch_calendar():
 
 def load_portraits():
     # Embedded as data URIs: an SVG inside <img> will not load anything external.
-    return ["data:image/jpeg;base64," + base64.b64encode((PORTRAITS / file).read_bytes()).decode() for *_, file in ANIME]
+    # One symbol per photo, drawn with <use>, so an image holding both themes carries each photo once.
+    return "<defs>" + "".join(
+        f'<symbol id="pt{i}"><image href="data:image/jpeg;base64,{base64.b64encode((PORTRAITS / file).read_bytes()).decode()}" width="100%" height="100%" preserveAspectRatio="xMidYMin slice"/></symbol>'
+        for i, (*_, file) in enumerate(ANIME)) + "</defs>"
 
 
 def svg(w, h, alt, body):
@@ -79,6 +87,17 @@ def svg(w, h, alt, body):
 
 def text(s, x, y, size, fill, weight=400, anchor="start"):
     return f'<text x="{x:.1f}" y="{y:.1f}" font-size="{size}" font-weight="{weight}" fill="{fill}" text-anchor="{anchor}">{escape(s)}</text>'
+
+
+def kanji(s, x, y, size, fill, anchor="start"):
+    # Like text(), with (x, y) on the baseline, but drawn from GLYPHS.
+    k = size / GLYPHS["upm"]
+    x -= {"start": 0, "middle": .5, "end": 1}[anchor] * k * sum(GLYPHS[ch]["w"] for ch in s)
+    out = []
+    for ch in s:
+        out.append(f'<path transform="translate({x:.1f} {y:.1f}) scale({k:.3f} {-k:.3f})" fill="{fill}" d="{GLYPHS[ch]["d"]}"/>')
+        x += k * GLYPHS[ch]["w"]
+    return "".join(out)
 
 
 def panel(h, c, gx, gy):
@@ -96,17 +115,18 @@ def stack(c):
     gap, th = 8, 72
     h = th + 2 * PAD
     w = (WIDTH - 2 * PAD - gap * (len(STACK) - 1)) / len(STACK)
-    out = [panel(h, c, 0, 0)]
+    # On a phone the labels would be ~4px, so they give way to logos grown to fill the tile; the alt text keeps the names.
+    out = [f"<style>{NARROW}{{.label{{display:none}}.icon{{transform:translateY(10px) scale(1.7)}}}}</style>", panel(h, c, 0, 0)]
     for i, (label, slug) in enumerate(STACK):
         x = PAD + i * (w + gap)
         cx = x + w / 2
         out.append(f'<rect x="{x + .5:.1f}" y="{PAD + .5}" width="{w - 1:.1f}" height="{th - 1}" rx="6" fill="{c["canvas"]}" stroke="{c["line"]}"/>')
-        if slug:
-            out.append(f'<path transform="translate({cx - 12:.1f} {PAD + 14})" fill="{c["ink"]}" d="{ICONS[slug]}"/>')
-        else:
-            out.append(text("MJ", cx, PAD + 33, 18, c["ink"], 600, "middle"))
+        # The icon is centered on its group's origin, so it grows in place.
+        mark = (f'<path transform="translate(-12 -12)" fill="{c["ink"]}" d="{ICONS[slug]}"/>' if slug
+                else text("MJ", 0, 7, 18, c["ink"], 600, "middle"))
+        out.append(f'<g transform="translate({cx:.1f} {PAD + 26})"><g class="icon">{mark}</g></g>')
         # 10px keeps the longest label, TypeScript, inside its tile.
-        out.append(text(label, cx, PAD + 58, 10, c["soft"], anchor="middle"))
+        out.append(f'<g class="label">{text(label, cx, PAD + 58, 10, c["soft"], anchor="middle")}</g>')
     alt = "Stack: " + ", ".join(label for label, _ in STACK) + "."
     return svg(WIDTH, h, alt, "".join(out))
 
@@ -162,20 +182,16 @@ def clock(days, c):
         today = i == len(days) - 1
         color = c["now"] if today else c["witch"] if n else c["line"]
         out.append(f'<line x1="{cx + r0 * s:.1f}" y1="{cy - r0 * co:.1f}" x2="{cx + r1 * s:.1f}" y2="{cy - r1 * co:.1f}" stroke="{color}" stroke-width="{4 if today else 1.8}" stroke-linecap="round"/>')
-    kanji = "".join(
-        f'<text x="{cx}" y="{cy - 66 + i * 60}" text-anchor="middle" fill="{c["ink"]}">{ch}</text>'
-        for i, ch in enumerate("死に戻り")
-    )
+    words = "".join(kanji(ch, cx, cy - 66 + i * 60, 52, c["ink"], "middle") for i, ch in enumerate("死に戻り"))
     alt = "A clock with one tick per day of the past year, around the Japanese words shi ni modori, Return by Death."
-    return svg(480, 480, alt, f'''<style>text{{font-family:"Hiragino Mincho ProN","Yu Mincho","Noto Serif CJK JP",serif;font-size:52px}}
-.rewind{{transform-origin:{cx}px {cy}px;animation:rewind 60s linear infinite}}
+    return svg(480, 480, alt, f'''<style>.rewind{{transform-origin:{cx}px {cy}px;animation:rewind 60s linear infinite}}
 @keyframes rewind{{to{{transform:rotate(-360deg)}}}}
 @media (prefers-reduced-motion:reduce){{.rewind{{animation:none}}}}</style>
 <defs><radialGradient id="halo"><stop offset=".55" stop-color="{c["witch"]}" stop-opacity=".22"/><stop offset="1" stop-color="{c["witch"]}" stop-opacity="0"/></radialGradient></defs>
 <circle cx="{cx}" cy="{cy}" r="240" fill="url(#halo)"/>
 {"".join(out)}
 <circle class="rewind" cx="{cx}" cy="{cy - r0 + 16}" r="6" fill="{c["now"]}"/>
-{kanji}''')
+{words}''')
 
 
 def iso(days, top, width, hmax, c, now=False, rise=False):
@@ -217,18 +233,20 @@ def city(total, days, c):
     h = PAD + head + bh + PAD
     out = [
         '<style>.rise{transform-box:fill-box;transform-origin:50% 100%;animation:rise .8s cubic-bezier(.16,1,.3,1) both}'
-        '@keyframes rise{from{transform:scaleY(0)}}@media (prefers-reduced-motion:reduce){.rise{animation:none}}</style>',
+        '@keyframes rise{from{transform:scaleY(0)}}@media (prefers-reduced-motion:reduce){.rise{animation:none}}'
+        f'{NARROW}{{.count text{{font-size:30px;transform:translateY(10px)}}}}</style>',
         panel(h, c, 0, 1),
         # 不夜城, the city that never sleeps, sits in the empty corner above the later weeks.
-        f'<text x="{WIDTH - PAD}" y="{PAD + 46}" font-family="{MINCHO}" font-size="48" fill="{c["line"]}" text-anchor="end">不夜城</text>',
-        text(f"{total} contributions in the last year", PAD, PAD + 14, 14, c["soft"]),
+        kanji("不夜城", WIDTH - PAD, PAD + 46, 48, c["line"], "end"),
+        f'<g class="count">{text(f"{total} contributions in the last year", PAD, PAD + 14, 14, c["soft"])}</g>',
         f'<g transform="translate({PAD} {PAD + head})">{body}</g>',
     ]
     alt = f"{total} contributions in the last year, drawn as an isometric city, one block per day. Taller blocks mean more contributions."
     return svg(WIDTH, h, alt, "".join(out))
 
 
-def anime(portraits, c):
+def anime(c, portraits=""):
+    # `portraits` is load_portraits(): pass it here, or to adaptive() when one image holds both themes.
     ih, gap, fw = 288, 8, 240
     h = ih + 2 * PAD
     rx = PAD + fw + gap
@@ -236,6 +254,10 @@ def anime(portraits, c):
     pw = 72
     (quote, who, show, _), rest = ANIME[0], ANIME[1:]
     out = [
+        # On a phone the text grows to stay readable; the big panel drops its show name to make room.
+        f"<style>{NARROW}{{.fq text{{font-size:28px;transform:translateY(-6px)}}.fm{{font-size:24px}}.fm .show{{display:none}}"
+        ".rq text{font-size:26px;transform:translateY(-6px)}.rm{font-size:24px;transform:translateY(10px)}}</style>",
+        portraits,
         panel(h, c, 1, 1),
         '<defs><linearGradient id="scrim" x1="0" y1="0" x2="0" y2="1">'
         '<stop offset=".5" stop-color="#010409" stop-opacity="0"/><stop offset="1" stop-color="#010409" stop-opacity=".9"/></linearGradient>'
@@ -246,16 +268,16 @@ def anime(portraits, c):
         # Round only the left corners: the portrait sits at the start of its row.
         out.append(f'<clipPath id="p{i}"><path d="M{rx + 6} {y:.1f}H{rx + pw}V{y + rh:.1f}H{rx + 6}A6 6 0 0 1 {rx} {y + rh - 6:.1f}V{y + 6:.1f}A6 6 0 0 1 {rx + 6} {y:.1f}Z"/></clipPath>')
     out.append("</defs>")
-    out.append(f'<g clip-path="url(#feature)"><image href="{portraits[0]}" x="{PAD}" y="{PAD}" width="{fw}" height="{ih}" preserveAspectRatio="xMidYMin slice"/><rect x="{PAD}" y="{PAD}" width="{fw}" height="{ih}" fill="url(#scrim)"/></g>')
-    out.append(text(quote, PAD + 16, PAD + ih - 38, 20, "#ffffff", 600))
-    out.append(f'<text x="{PAD + 16}" y="{PAD + ih - 16}" font-size="12"><tspan fill="#ffffff">{escape(who)}</tspan><tspan fill="#ffffffaa" dx="6">{escape(show)}</tspan></text>')
-    for i, ((quote, who, show, _), src) in enumerate(zip(rest, portraits[1:])):
+    out.append(f'<g clip-path="url(#feature)"><use href="#pt0" x="{PAD}" y="{PAD}" width="{fw}" height="{ih}"/><rect x="{PAD}" y="{PAD}" width="{fw}" height="{ih}" fill="url(#scrim)"/></g>')
+    out.append(f'<g class="fq">{text(quote, PAD + 16, PAD + ih - 38, 20, "#ffffff", 600)}</g>')
+    out.append(f'<text class="fm" x="{PAD + 16}" y="{PAD + ih - 16}" font-size="12"><tspan fill="#ffffff">{escape(who)}</tspan><tspan class="show" fill="#ffffffaa" dx="6">{escape(show)}</tspan></text>')
+    for i, (quote, who, show, _) in enumerate(rest):
         y = PAD + i * (rh + gap)
         tx = rx + pw + 16
         out.append(f'<rect x="{rx + .5}" y="{y + .5:.1f}" width="{rw - 1}" height="{rh - 1:.1f}" rx="6" fill="{c["canvas"]}" stroke="{c["line"]}"/>')
-        out.append(f'<image href="{src}" x="{rx}" y="{y:.1f}" width="{pw}" height="{rh:.1f}" preserveAspectRatio="xMidYMin slice" clip-path="url(#p{i})"/>')
-        out.append(text(quote, tx, y + rh / 2 - 2, 16, c["ink"]))
-        out.append(f'<text x="{tx}" y="{y + rh / 2 + 18:.1f}" font-size="12"><tspan fill="{c["witch"]}">{escape(who)}</tspan><tspan fill="{c["soft"]}" dx="6">{escape(show)}</tspan></text>')
+        out.append(f'<g clip-path="url(#p{i})"><use href="#pt{i + 1}" x="{rx}" y="{y:.1f}" width="{pw}" height="{rh:.1f}"/></g>')
+        out.append(f'<g class="rq">{text(quote, tx, y + rh / 2 - 2, 16, c["ink"])}</g>')
+        out.append(f'<text class="rm" x="{tx}" y="{y + rh / 2 + 18:.1f}" font-size="12"><tspan fill="{c["witch"]}">{escape(who)}</tspan><tspan fill="{c["soft"]}" dx="6">{escape(show)}</tspan></text>')
     alt = "Favorite anime, one line each: " + " ".join(f'"{q}" {who}, {show}.' for q, who, show, _ in ANIME)
     return svg(WIDTH, h, alt, "".join(out))
 
@@ -270,7 +292,7 @@ def main(out):
         (out / f"intro-{theme}.svg").write_text(intro(c), encoding="utf-8")
         (out / f"city-{theme}.svg").write_text(city(total, days, c), encoding="utf-8")
         (out / f"stack-{theme}.svg").write_text(stack(c), encoding="utf-8")
-        (out / f"anime-{theme}.svg").write_text(anime(portraits, c), encoding="utf-8")
+        (out / f"anime-{theme}.svg").write_text(anime(c, portraits), encoding="utf-8")
 
 
 if __name__ == "__main__":
