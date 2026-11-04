@@ -19,7 +19,7 @@ NARROW = "@media (max-width:600px)"
 # with soft and the light witch darkened so small text passes WCAG AA on the panel.
 THEMES = {
     "dark": dict(ink="#c0caf5", soft="#8089b3", line="#3b4261", canvas="#16161e", tile="#1a1b26", faint="#292e42", witch="#bb9af7", neon="#7aa2f7", south="#9d7cd8", east="#7058b8", now="#ff9e64"),
-    "light": dict(ink="#3760bf", soft="#585f88", line="#a8aecb", canvas="#e9e9ed", tile="#e1e2e7", faint="#c4c8da", witch="#7f3fd9", neon="#2e7de9", south="#7847bd", east="#5f37a0", now="#b15c00"),
+    "light": dict(ink="#3760bf", soft="#585f88", line="#a8aecb", canvas="#e9e9ed", tile="#e1e2e7", faint="#c4c8da", witch="#7c3bd5", neon="#2e7de9", south="#7847bd", east="#5f37a0", now="#b15c00"),
 }
 FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans',Helvetica,Arial,sans-serif"
 PORTRAITS = HERE.parent / "assets" / "anime"
@@ -112,22 +112,23 @@ def panel(h, c, gx, gy):
 
 
 def stack(c):
-    gap, th = 8, 72
-    h = th + 2 * PAD
-    w = (WIDTH - 2 * PAD - gap * (len(STACK) - 1)) / len(STACK)
-    # On a phone the labels would be ~4px, so they give way to logos grown to fill the tile; the alt text keeps the names.
-    out = [f"<style>{NARROW}{{.label{{display:none}}.icon{{transform:translateY(10px) scale(1.7)}}}}</style>", panel(h, c, 0, 0)]
+    # 装備, the loadout, runs down the right edge the way 死に戻り runs down the Clock.
+    # The logos sit straight on the panel: twelve bordered tiles read as a template, not a kit.
+    h, ks = 128, 44
+    w = (WIDTH - 2 * PAD - ks - 24) / len(STACK)
+    # On a phone the labels would be ~4px, so they give way to larger logos; the alt text keeps the names.
+    out = [f"<style>{NARROW}{{.label{{display:none}}.icon{{transform:translateY(12px) scale(1.6)}}}}</style>", panel(h, c, 0, 0)]
+    for i, ch in enumerate("装備"):
+        out.append(kanji(ch, WIDTH - PAD - ks / 2, (h - 2 * ks - 4) / 2 + .88 * ks + i * (ks + 4), ks, c["line"], "middle"))
     for i, (label, slug) in enumerate(STACK):
-        x = PAD + i * (w + gap)
-        cx = x + w / 2
-        out.append(f'<rect x="{x + .5:.1f}" y="{PAD + .5}" width="{w - 1:.1f}" height="{th - 1}" rx="6" fill="{c["canvas"]}" stroke="{c["line"]}"/>')
+        cx = PAD + (i + .5) * w
         # The icon is centered on its group's origin, so it grows in place.
-        mark = (f'<path transform="translate(-12 -12)" fill="{c["ink"]}" d="{ICONS[slug]}"/>' if slug
-                else text("MJ", 0, 7, 18, c["ink"], 600, "middle"))
-        out.append(f'<g transform="translate({cx:.1f} {PAD + 26})"><g class="icon">{mark}</g></g>')
-        # 10px keeps the longest label, TypeScript, inside its tile.
-        out.append(f'<g class="label">{text(label, cx, PAD + 58, 10, c["soft"], anchor="middle")}</g>')
-    alt = "Stack: " + ", ".join(label for label, _ in STACK) + "."
+        mark = (f'<path transform="scale({28 / 24:.3f}) translate(-12 -12)" fill="{c["ink"]}" d="{ICONS[slug]}"/>' if slug
+                else text("MJ", 0, 7, 20, c["ink"], 600, "middle"))
+        out.append(f'<g transform="translate({cx:.1f} 52)"><g class="icon">{mark}</g></g>')
+        # 11px keeps the longest label, TypeScript, inside its column.
+        out.append(f'<g class="label">{text(label, cx, 94, 11, c["soft"], anchor="middle")}</g>')
+    alt = "Loadout, 装備: " + ", ".join(label for label, _ in STACK) + "."
     return svg(WIDTH, h, alt, "".join(out))
 
 
@@ -250,34 +251,34 @@ def anime(c, portraits=""):
     ih, gap, fw = 288, 8, 240
     h = ih + 2 * PAD
     rx = PAD + fw + gap
-    rw, rh = WIDTH - PAD - rx, (ih - 2 * gap) / 3
+    rh = (ih - 2 * gap) / 3
     pw = 72
     (quote, who, show, _), rest = ANIME[0], ANIME[1:]
     out = [
         # On a phone the text grows to stay readable; the big panel drops its show name to make room.
-        f"<style>{NARROW}{{.fq text{{font-size:28px;transform:translateY(-6px)}}.fm{{font-size:24px}}.fm .show{{display:none}}"
+        f"<style>{NARROW}{{.fq text{{font-size:25px;transform:translateY(-6px)}}.fm{{font-size:24px}}.fm .show{{display:none}}"
         ".rq text{font-size:26px;transform:translateY(-6px)}.rm{font-size:24px;transform:translateY(10px)}}</style>",
         portraits,
         panel(h, c, 1, 1),
+        # 推し, your favorite character, sits under the quotes the way 不夜城 sits over the City.
+        kanji("推し", WIDTH - PAD - 8, PAD + ih - 12, 96, c["line"], "end"),
         '<defs><linearGradient id="scrim" x1="0" y1="0" x2="0" y2="1">'
         '<stop offset=".5" stop-color="#010409" stop-opacity="0"/><stop offset="1" stop-color="#010409" stop-opacity=".9"/></linearGradient>'
         f'<clipPath id="feature"><rect x="{PAD}" y="{PAD}" width="{fw}" height="{ih}" rx="6"/></clipPath>',
     ]
     for i in range(len(rest)):
-        y = PAD + i * (rh + gap)
-        # Round only the left corners: the portrait sits at the start of its row.
-        out.append(f'<clipPath id="p{i}"><path d="M{rx + 6} {y:.1f}H{rx + pw}V{y + rh:.1f}H{rx + 6}A6 6 0 0 1 {rx} {y + rh - 6:.1f}V{y + 6:.1f}A6 6 0 0 1 {rx + 6} {y:.1f}Z"/></clipPath>')
+        out.append(f'<clipPath id="p{i}"><rect x="{rx}" y="{PAD + i * (rh + gap):.1f}" width="{pw}" height="{rh:.1f}" rx="6"/></clipPath>')
     out.append("</defs>")
     out.append(f'<g clip-path="url(#feature)"><use href="#pt0" x="{PAD}" y="{PAD}" width="{fw}" height="{ih}"/><rect x="{PAD}" y="{PAD}" width="{fw}" height="{ih}" fill="url(#scrim)"/></g>')
-    out.append(f'<g class="fq">{text(quote, PAD + 16, PAD + ih - 38, 20, "#ffffff", 600)}</g>')
+    out.append(f'<g class="fq">{text(f"“{quote}”", PAD + 16, PAD + ih - 38, 20, "#ffffff", 600)}</g>')
     out.append(f'<text class="fm" x="{PAD + 16}" y="{PAD + ih - 16}" font-size="12"><tspan fill="#ffffff">{escape(who)}</tspan><tspan class="show" fill="#ffffffaa" dx="6">{escape(show)}</tspan></text>')
+    # No cards around the other three: the quotes are the content, so they stand on the panel at display size.
     for i, (quote, who, show, _) in enumerate(rest):
         y = PAD + i * (rh + gap)
-        tx = rx + pw + 16
-        out.append(f'<rect x="{rx + .5}" y="{y + .5:.1f}" width="{rw - 1}" height="{rh - 1:.1f}" rx="6" fill="{c["canvas"]}" stroke="{c["line"]}"/>')
+        tx = rx + pw + 20
         out.append(f'<g clip-path="url(#p{i})"><use href="#pt{i + 1}" x="{rx}" y="{y:.1f}" width="{pw}" height="{rh:.1f}"/></g>')
-        out.append(f'<g class="rq">{text(quote, tx, y + rh / 2 - 2, 16, c["ink"])}</g>')
-        out.append(f'<text class="rm" x="{tx}" y="{y + rh / 2 + 18:.1f}" font-size="12"><tspan fill="{c["witch"]}">{escape(who)}</tspan><tspan fill="{c["soft"]}" dx="6">{escape(show)}</tspan></text>')
+        out.append(f'<g class="rq">{text(f"“{quote}”", tx, y + rh / 2, 20, c["ink"])}</g>')
+        out.append(f'<text class="rm" x="{tx}" y="{y + rh / 2 + 20:.1f}" font-size="12"><tspan fill="{c["witch"]}">{escape(who)}</tspan><tspan fill="{c["soft"]}" dx="6">{escape(show)}</tspan></text>')
     alt = "Favorite anime, one line each: " + " ".join(f'"{q}" {who}, {show}.' for q, who, show, _ in ANIME)
     return svg(WIDTH, h, alt, "".join(out))
 

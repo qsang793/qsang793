@@ -2,7 +2,9 @@
 
 ### Sang Nguyen
 
-<picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/qsang793/qsang793/output/intro-dark.svg"><img src="https://raw.githubusercontent.com/qsang793/qsang793/output/intro-light.svg" width="100%" alt="One-liners typed and rewound in a loop: My agents work while I sleep. That's the whole business plan. Hey Claude, build me an app. No mistakes. Vibe coding by day, vibe debugging by night. 90% sleeping, 10% telling the AI it's wrong. Job title: engineer. Actual job: pressing Enter. My robot fell 3,000 times today. It's learning."></picture>
+Software engineer. I build agents and developer tools. By day, I simulate humanoid robots.
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/qsang793/qsang793/output/intro-dark.svg"><img src="https://raw.githubusercontent.com/qsang793/qsang793/output/intro-light.svg" width="100%" alt="One-liners typed and rewound in a loop: My robot fell 3,000 times today. It's learning. My agents work while I sleep. That's the whole business plan. Hey Claude, build me an app. No mistakes. Vibe coding by day, vibe debugging by night. 90% sleeping, 10% telling the AI it's wrong. Job title: engineer. Actual job: pressing Enter."></picture>
 
 ### Stack
 
