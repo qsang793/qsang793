@@ -167,10 +167,11 @@ def intro(c):
         step = f"steps({len(s)},end)"
         # The cursor moves and the text's right edge is clipped in step. WebKit (Safari, the GitHub app) ignores CSS
         # transforms inside a clipPath, so the text clips itself, with a polygon measured from its left edge since browsers
-        # disagree on where its right edge is. Hidden takes the cursor two characters past the left edge.
+        # disagree on where its right edge is. Hidden takes the cursor two characters past the left edge and fades it out:
+        # WebKit in an <img> still paints a sliver of it at the image's left edge.
         edge = lambda x: f"polygon(0 -40px,{x:.1f}px -40px,{x:.1f}px 80px,0 80px)"
         for name, prop, hidden, prompt, shown in (
-                (f"l{i}", "transform", f"translateX({-full - 2 * cw:.1f}px)", f"translateX({pre - full:.1f}px)", "none"),
+                (f"l{i}", "transform", f"translateX({-full - 2 * cw:.1f}px);opacity:0", f"translateX({pre - full:.1f}px);opacity:1", "none;opacity:1"),
                 (f"k{i}", "clip-path", edge(0), edge(pre), edge(full + cw))):
             css.append(f"@keyframes {name}{{0%{{{prop}:{hidden};animation-timing-function:step-end}}"
                        f"{a:.3f}%{{{prop}:{prompt};animation-timing-function:{step}}}"
