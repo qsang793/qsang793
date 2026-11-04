@@ -18,14 +18,25 @@ THEMES = {
 }
 MINCHO = "'Hiragino Mincho ProN','Yu Mincho','Noto Serif CJK JP',serif"
 FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans',Helvetica,Arial,sans-serif"
-CHARACTER_CDN = "https://s4.anilist.co/file/anilistcdn/character/large/"
+PORTRAITS = HERE.parent / "assets" / "anime"
 # (quote, character, show, portrait); the first one gets the big panel.
+# Portraits are kept in the repo, not fetched, so a CDN outage cannot stop the build (docs/adr/0002).
 ANIME = [
-    ("Be my darling.", "Zero Two", "DARLING in the FRANXX", "b124381-2gAVq76HPfL2.png"),
-    ("Let's start from zero.", "Rem", "Re:Zero", "b88575-Ayu8UPDA8NS6.png"),
-    ("I save people unequally.", "Megumi", "Jujutsu Kaisen", "b126635-L0y3I92JSUkN.png"),
-    ("What's 1000 minus 7?", "Kaneki", "Tokyo Ghoul", "b87275-mb13EWZBdbh3.png"),
+    ("Be my darling.", "Zero Two", "DARLING in the FRANXX", "zero-two.jpg"),
+    ("Let's start from zero.", "Rem", "Re:Zero", "rem.jpg"),
+    ("I save people unequally.", "Megumi", "Jujutsu Kaisen", "megumi.jpg"),
+    ("What's 1000 minus 7?", "Kaneki", "Tokyo Ghoul", "kaneki.jpg"),
 ]
+# One line per loop: typed, held, then rewound before the next loop tries again.
+LINES = [
+    "My agents work while I sleep. That's the whole business plan.",
+    "Hey Claude, build me an app. No mistakes.",
+    "Vibe coding by day, vibe debugging by night.",
+    "90% sleeping, 10% telling the AI it's wrong.",
+    "Job title: engineer. Actual job: pressing Enter.",
+    "My robot fell 3,000 times today. It's learning.",
+]
+MONO = "ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace"
 # (label, Simple Icons slug); MuJoCo has no logo there, so it gets a monogram.
 STACK = [
     ("Python", "python"), ("TypeScript", "typescript"), ("Go", "go"), ("Isaac Sim", "nvidia"),
@@ -34,10 +45,9 @@ STACK = [
 ]
 
 
-def fetch_calendar(year=None):
-    # No year means GitHub's rolling last twelve months.
-    span = f'(from:"{year}-01-01T00:00:00Z",to:"{year}-12-31T23:59:59Z")' if year else ""
-    query = '{user(login:"%s"){contributionsCollection%s{contributionYears contributionCalendar{totalContributions weeks{contributionDays{weekday contributionCount}}}}}}' % (USER, span)
+def fetch_calendar():
+    # GitHub's rolling last twelve months.
+    query = '{user(login:"%s"){contributionsCollection{contributionCalendar{totalContributions weeks{contributionDays{weekday contributionCount}}}}}}' % USER
     req = urllib.request.Request(
         "https://api.github.com/graphql",
         json.dumps({"query": query}).encode(),
@@ -47,23 +57,17 @@ def fetch_calendar(year=None):
         body = json.load(res)
     if "errors" in body:
         raise RuntimeError(body["errors"])
-    col = body["data"]["user"]["contributionsCollection"]
-    cal = col["contributionCalendar"]
-    # (week, weekday, count): a calendar year starts mid-week, so the weekday places each day.
+    cal = body["data"]["user"]["contributionsCollection"]["contributionCalendar"]
+    # (week, weekday, count): the window starts mid-week, so the weekday places each day.
     days = [(w, d["weekday"], d["contributionCount"]) for w, week in enumerate(cal["weeks"]) for d in week["contributionDays"]]
     # A short calendar means a bad response: fail so the last good image stays published.
     assert len(days) > 300, len(days)
-    return col["contributionYears"], cal["totalContributions"], days
+    return cal["totalContributions"], days
 
 
-def fetch_portraits():
+def load_portraits():
     # Embedded as data URIs: an SVG inside <img> will not load anything external.
-    out = []
-    for *_, file in ANIME:
-        req = urllib.request.Request(CHARACTER_CDN + file, headers={"User-Agent": USER})
-        with urllib.request.urlopen(req, timeout=30) as res:
-            out.append("data:image/png;base64," + base64.b64encode(res.read()).decode())
-    return out
+    return ["data:image/jpeg;base64," + base64.b64encode((PORTRAITS / file).read_bytes()).decode() for *_, file in ANIME]
 
 
 def svg(w, h, alt, body):
@@ -101,9 +105,49 @@ def stack(c):
             out.append(f'<path transform="translate({cx - 12:.1f} {PAD + 14})" fill="{c["ink"]}" d="{ICONS[slug]}"/>')
         else:
             out.append(text("MJ", cx, PAD + 33, 18, c["ink"], 600, "middle"))
-        out.append(text(label, cx, PAD + 58, 11, c["soft"], anchor="middle"))
+        # 10px keeps the longest label, TypeScript, inside its tile.
+        out.append(text(label, cx, PAD + 58, 10, c["soft"], anchor="middle"))
     alt = "Stack: " + ", ".join(label for label, _ in STACK) + "."
     return svg(WIDTH, h, alt, "".join(out))
+
+
+def intro(c):
+    # Each loop types its line, holds it, then rewinds to the prompt: Return by Death as a terminal.
+    # 20px keeps the longest line inside the 846px column.
+    size, cw, h, y = 20, 12, 40, 28
+    rows = [(f"#{i + 1} › ", s) for i, s in enumerate(LINES)]
+    spans = [(0.05 * len(s), 2.4, 0.015 * len(s), 0.4) for _, s in rows]
+    total = sum(map(sum, spans))
+    css, out, t = [], [], 0.0
+    for i, ((p, s), span) in enumerate(zip(rows, spans)):
+        full, pre = (len(p) + len(s)) * cw, len(p) * cw
+        marks = [t]
+        for d in span:
+            marks.append(marks[-1] + d)
+        a, b, cc, d, e = (100 * m / total for m in marks)
+        # Hidden goes two characters past the left edge so the cursor leaves the canvas too.
+        hidden, prompt = f"translateX({-full - 2 * cw:.1f}px)", f"translateX({pre - full:.1f}px)"
+        # One step per character, typing and rewinding alike.
+        step = f"steps({len(s)},end)"
+        css.append(f"@keyframes l{i}{{0%{{transform:{hidden};animation-timing-function:step-end}}"
+                   f"{a:.3f}%{{transform:{prompt};animation-timing-function:{step}}}"
+                   f"{b:.3f}%{{transform:none}}"
+                   f"{cc:.3f}%{{transform:none;animation-timing-function:{step}}}"
+                   f"{d:.3f}%{{transform:{prompt};animation-timing-function:step-end}}"
+                   f"{e:.3f}%,100%{{transform:{hidden}}}}}")
+        # Without animation (reduced motion), only the first loop shows, fully typed.
+        anim = f'class="loop" style="animation-name:l{i}{";transform:" + hidden if i else ""}"'
+        out.append(f'<clipPath id="c{i}"><rect {anim} width="{full:.1f}" height="{h}"/></clipPath>'
+                   f'<text x="0" y="{y}" textLength="{full:.1f}" lengthAdjust="spacing" clip-path="url(#c{i})">'
+                   f'<tspan fill="{c["witch"]}">{escape(p)}</tspan><tspan fill="{c["ink"]}">{escape(s)}</tspan></text>'
+                   f'<g {anim}><rect class="cursor" x="{full + 2:.1f}" y="{y - size + 3}" width="{cw * .6:.1f}" height="{size + 2}" fill="{c["now"]}"/></g>')
+        t = marks[-1]
+    alt = "One-liners typed and rewound in a loop: " + " ".join(LINES)
+    style = (f"<style>text{{font-family:{MONO};font-size:{size}px;white-space:pre}}"
+             f".loop{{animation:{total:.2f}s infinite}}.cursor{{animation:blink 1s step-end infinite}}"
+             "@keyframes blink{50%{opacity:0}}" + "".join(css) +
+             "@media (prefers-reduced-motion:reduce){.loop,.cursor{animation:none}}</style>")
+    return svg(WIDTH, h, alt, style + "".join(out))
 
 
 def clock(days, c):
@@ -184,24 +228,6 @@ def city(total, days, c):
     return svg(WIDTH, h, alt, "".join(out))
 
 
-def loops(years, c):
-    # Earlier calendar years side by side on one height scale, so each loop shows how far it got.
-    gap = 16
-    w = (WIDTH - 2 * PAD - gap * (len(years) - 1)) / len(years)
-    top = max(n for _, _, days in years for *_, n in days) or 1
-    drawn = [iso(days, top, w, 18, c) for _, _, days in years]
-    bh = max(h for _, h in drawn)
-    h = PAD + bh + 44 + PAD
-    out = [panel(h, c, 0, 1)]
-    for i, ((year, total, _), (body, ch)) in enumerate(zip(years, drawn)):
-        x = PAD + i * (w + gap)
-        out.append(f'<g transform="translate({x:.1f} {PAD + bh - ch:.1f})">{body}</g>')
-        out.append(text(str(year), x, PAD + bh + 24, 14, c["ink"], 600))
-        out.append(text(f"{total} contributions", x, PAD + bh + 42, 12, c["soft"]))
-    alt = "Earlier years of contributions as small isometric cities: " + ", ".join(f"{y}: {t}" for y, t, _ in years) + "."
-    return svg(WIDTH, h, alt, "".join(out))
-
-
 def anime(portraits, c):
     ih, gap, fw = 288, 8, 240
     h = ih + 2 * PAD
@@ -237,13 +263,12 @@ def anime(portraits, c):
 def main(out):
     out = pathlib.Path(out)
     out.mkdir(parents=True, exist_ok=True)
-    years, total, days = fetch_calendar()
-    earlier = [(y, *fetch_calendar(y)[1:]) for y in sorted(years) if y != max(years)]
-    portraits = fetch_portraits()
+    total, days = fetch_calendar()
+    portraits = load_portraits()
     for theme, c in THEMES.items():
         (out / f"clock-{theme}.svg").write_text(clock(days, c), encoding="utf-8")
+        (out / f"intro-{theme}.svg").write_text(intro(c), encoding="utf-8")
         (out / f"city-{theme}.svg").write_text(city(total, days, c), encoding="utf-8")
-        (out / f"loops-{theme}.svg").write_text(loops(earlier, c), encoding="utf-8")
         (out / f"stack-{theme}.svg").write_text(stack(c), encoding="utf-8")
         (out / f"anime-{theme}.svg").write_text(anime(portraits, c), encoding="utf-8")
 
