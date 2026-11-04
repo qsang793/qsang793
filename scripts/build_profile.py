@@ -181,8 +181,11 @@ def intro(c):
         # Without animation (reduced motion, or a renderer that skips it), only the first loop shows, fully typed: the
         # others are hidden by attribute and only an animation shows them.
         show = ' class="on" visibility="hidden"' if i else ""
-        out.append(f'<g{show}><text class="loop" style="animation-name:k{i}" x="0" y="{y}" textLength="{full:.1f}" lengthAdjust="spacing">'
-                   f'<tspan fill="{c["witch"]}">{escape(p)}</tspan><tspan fill="{c["ink"]}">{escape(s)}</tspan></text>'
+        # Every character gets its own x on the cw grid: WebKit ignores textLength here and lays SF Mono out at ~12.4px,
+        # which would leave the text running past the cursor and the clip.
+        grid = lambda s, x0: " ".join(f"{x0 + j * cw}" for j in range(len(s)))
+        out.append(f'<g{show}><text class="loop" style="animation-name:k{i}" y="{y}">'
+                   f'<tspan x="{grid(p, 0)}" fill="{c["witch"]}">{escape(p)}</tspan><tspan x="{grid(s, pre)}" fill="{c["ink"]}">{escape(s)}</tspan></text>'
                    f'<g class="loop" style="animation-name:l{i}"><rect class="cursor" x="{full + 2:.1f}" y="{y - size + 3}" width="{cw * .6:.1f}" height="{size + 2}" fill="{c["now"]}"/></g></g>')
         t = marks[-1]
     alt = "One-liners typed and rewound in a loop: " + " ".join(LINES)
