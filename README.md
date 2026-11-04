@@ -12,7 +12,7 @@ Software engineer. I build agents and developer tools. By day, I simulate humano
 
 ### Activity
 
-<picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/qsang793/qsang793/output/city-dark.svg"><img src="https://raw.githubusercontent.com/qsang793/qsang793/output/city-light.svg" width="100%" alt="My past year of contributions drawn as an isometric city, one block per day. Taller blocks mean more contributions. Subaru jumps from roof to roof and runs the empty streets; in the longest stretch of empty weeks, if there is one, he dies, returns by death to the roof before it, and clears it in one leap."></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/qsang793/qsang793/output/city-dark.svg"><img src="https://raw.githubusercontent.com/qsang793/qsang793/output/city-light.svg" width="100%" alt="My past year of contributions drawn as an isometric city, one block per day. Taller blocks mean more contributions. Subaru jumps from roof to roof and walks the empty streets; in the longest stretch of empty weeks, if there is one, he dies, returns by death to the roof before it, and clears it in one leap."></picture>
 
 <sub>Subaru: model by <a href="https://hub.vroid.com/en/characters/2527299861430843430/models/3392138998639283709">Madoka-Senpai</a> (VRoid Hub)</sub>
 

@@ -1,9 +1,9 @@
 """Renders Subaru's frames for the City: the VRM model posed by Mixamo animations, seen at the City's angle.
 
 Usage: blender -b --python scripts/render_subaru.py -- MODEL.vrm MIXAMO_DIR OUT_DIR [sheet]
-MIXAMO_DIR holds run.fbx (Running), hop.fbx (Jumping Forward), jump.fbx (Standing Jump Running), fall.fbx and idle.fbx,
+MIXAMO_DIR holds run.fbx (Running), walk.fbx (Walking, "Male Standard Walk"), hop.fbx (Jumping Forward), jump.fbx (Standing Jump Running), fall.fbx and idle.fbx,
 exported "Without Skin" at 30 fps. The frames come out as one strip, subaru.webp, described by frames.json.
-Neither the model nor the animations are kept in the repo (docs/adr/0003); only the frames are.
+Neither the model nor the animations are kept in the repo (docs/adr/0004); only the frames are.
 """
 import json, math, os, sys
 import bpy, addon_utils
@@ -11,12 +11,14 @@ from mathutils import Matrix, Vector
 
 MODEL, MIXAMO, OUT = sys.argv[sys.argv.index("--") + 1:][:3]
 SHEET = "sheet" in sys.argv
-CLIPS = ("run", "hop", "jump", "fall", "idle")
-# (name, animation, frame), in strip order. Phases read off the clips' hip and toe heights: run is a 22-frame cycle.
+CLIPS = ("run", "walk", "hop", "jump", "fall", "idle")
+# (name, animation, frame), in strip order. Phases read off the clips' hip and toe heights: run is a 22-frame cycle,
+# walk a 37-frame one.
 # hop crouches to its lowest at 20, pushes up through 24 with its feet still down, flies 25-36, touches down at 37
 # and is lowest again at 41. jump leaves the ground at 24 and ends in the air.
 HOP = dict(crouch=(10, 15, 20), push=(22, 24), air=(26, 29, 32, 35), land=(37, 39, 41), recover=(46, 54))
 FRAMES = ([(f"run{i}", "run", 1 + 2 * i) for i in range(11)]
+          + [(f"walk{i}", "walk", 1 + 2 * i) for i in range(18)]
           + [(f"{phase}{i}", "hop", f) for phase, fs in HOP.items() for i, f in enumerate(fs)]
           + [(f"leap{i}", "jump", f) for i, f in enumerate((24, 27, 30, 33))]
           + [("fall", "fall", 10), ("stand", "idle", 1)])
@@ -143,17 +145,17 @@ def main():
                 for f in range(1, int(src.animation_data.action.frame_range[1]) + 1, 3)]
     else:
         jobs = FRAMES
-    feet = {n: {} if n == "run" else anchors(arm, src, pairs) for n, src in srcs.items()}
+    feet = {n: {} if n in ("run", "walk") else anchors(arm, src, pairs) for n, src in srcs.items()}
     for name, anim, frame in jobs:
         retarget(arm, srcs[anim], pairs, frame)
         # Stand him on his feet, not his hips, so a crouch or a landing puts his feet on the middle of the roof.
-        # The run keeps the hips: its planted foot slides back at the running speed instead.
+        # The run and walk keep the hips: their planted foot slides back at the travelling speed instead.
         arm.location.xy = [-v for v in feet[anim].get(frame, (0, 0))]
         bpy.context.view_layer.update()
         sc.render.filepath = os.path.join(OUT, name + ".png")
         bpy.ops.render.render(write_still=True)
     if not SHEET:
-        crop(jobs, cam, run_speed(arm, srcs["run"], pairs, cam))
+        crop(jobs, cam, {n: speed(arm, srcs[n], pairs, cam) for n in ("run", "walk")})
 
 
 def anchors(arm, src, pairs):
@@ -179,12 +181,12 @@ def anchors(arm, src, pairs):
     return out
 
 
-def run_speed(arm, src, pairs, cam):
-    """How fast the planted foot slides back in the run cycle, in render px/s: the speed Subaru must run not to skate."""
+def speed(arm, src, pairs, cam):
+    """How fast the planted foot slides back in a cycle, in render px/s: the speed Subaru must travel not to skate."""
     from bpy_extras.object_utils import world_to_camera_view as w2c
     vrm = {s: t for t, s in pairs}
     feet, moves = [], []
-    for f in range(1, 23):
+    for f in range(1, int(src.animation_data.action.frame_range[1]) + 1):
         retarget(arm, src, pairs, f)
         feet.append([(w2c(bpy.context.scene, cam, arm.matrix_world @ arm.pose.bones[vrm[b]].head).x * PX,
                       (src.matrix_world @ src.pose.bones[b].head).z < .02)
@@ -194,7 +196,7 @@ def run_speed(arm, src, pairs, cam):
     return 30 * sum(moves) / len(moves)
 
 
-def crop(jobs, cam, speed):
+def crop(jobs, cam, speeds):
     """Cuts every frame to one shared box and lays them side by side in one WebP strip, in FRAMES order,
     so the ground point sits at the same pixel in every frame."""
     import numpy as np
@@ -222,7 +224,7 @@ def crop(jobs, cam, speed):
     bottom = int(np.nonzero(soles.any(axis=1))[0].max())
     g = o + face * ((float(np.nonzero(soles[bottom - 5:bottom + 1].any(axis=0))[0].mean()) - o.x) / face.x)
     json.dump({"size": [int(x1 - x0), int(y1 - y0)], "ground": [round(g.x, 1), round(g.y, 1)],
-               "px_per_m": round(PX / cam.data.ortho_scale, 2), "run_px_s": round(speed, 1),
+               "px_per_m": round(PX / cam.data.ortho_scale, 2), **{f"{n}_px_s": round(v, 1) for n, v in speeds.items()},
                "frames": [n for n, *_ in jobs]}, open(os.path.join(OUT, "frames.json"), "w"))
 
 

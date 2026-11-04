@@ -38,6 +38,10 @@ SUBARU = HERE.parent / "assets" / "subaru"
 # `hang` slows him around the top.
 FEEL = dict(standup=.2, crouch=.16, push=.08, air=.42, rise=.006, lift=8, land=.14, hang=.6)
 REST = 8  # seconds on today's roof between Attempts
+# How he crosses empty weeks: frames in the strip's cycle and the cycle's length in seconds. A walking step is about
+# one week wide. If an Attempt would run past CAP seconds, he walks faster, by up to HURRY.
+GAITS = dict(run=(11, 22 / 30), walk=(18, 37 / 30))
+GAIT, CAP, HURRY = "walk", 90, 1.6
 # One line per loop: typed, held, then rewound before the next loop tries again.
 # The robot line goes first: it is the one that is about the actual work, and reduced motion shows only it.
 LINES = [
@@ -259,10 +263,10 @@ def iso(days, top, width, hmax, c, now=False, rise=False):
     return ["".join(r) for r in rows], max(ys) - min(ys), cells
 
 
-def subaru(cells, c, start, feel=None):
+def subaru(cells, c, start, feel=None, gait=GAIT, pace=1.0):
     """One Attempt as CSS keyframes. Subaru jumps roof to roof a week at a time, keeping to his weekday where he can,
-    and runs the street through empty weeks. He dies once, in the longest stretch of empty weeks, returns to the
-    Save point before it, clears it in one leap, and rests on today's roof until the next Attempt.
+    and walks (or runs) the street through empty weeks. He dies once, in the longest stretch of empty weeks, returns to
+    the Save point before it, clears it in one leap, and rests on today's roof until the next Attempt.
 
     `cells` comes from iso(); `start` waits out the City's rise. Returns the style, the drawing and an alt sentence.
     """
@@ -270,8 +274,10 @@ def subaru(cells, c, start, feel=None):
     f = json.loads((SUBARU / "frames.json").read_text())
     k = 40 / (1.8 * f["px_per_m"])
     fw, fi = f["size"][0] * k, {n: i for i, n in enumerate(f["frames"])}
-    # Running any faster or slower than the planted foot slides back would make it skate.
-    speed = f["run_px_s"] * k
+    # Travelling any faster or slower than the planted foot slides back would make it skate; `pace` plays the whole
+    # cycle faster, so the feet stay put.
+    speed, (frames, cycle) = f[f"{gait}_px_s"] * k * pace, GAITS[gait]
+    cycle /= pace
     today = max(cells)
     weeks = today[0] + 1
     built = {w for (w, _), (*_, n) in cells.items() if n} | {today[0]}
@@ -296,13 +302,21 @@ def subaru(cells, c, start, feel=None):
     gap = max(gaps, key=lambda g: (g[1] - g[0], g[0]), default=None)
 
     at = lambda cell: cells[cell][:2]
-    # (time, x, y), (time, frame), (time, opacity), and (time, weekday row he is drawn in, so rows in front hide him)
-    t, phase, pos, fr, alpha, row = 0.0, 0, [], [], [(0, 0), (.2, 1)], []
+    # (time, x, y), (time, opacity), and (time, weekday row he is drawn in, so rows in front hide him)
+    t, pos, alpha, row = 0.0, [], [(0, 0), (.2, 1)], []
+    # (time, frame) twice: as drawn, and on narrow screens, where he is drawn 1.6x larger and so takes fewer, longer
+    # strides over the same street. Everything but the street is the same in both.
+    fr, frn, phase, street = [], [], [0, 0], 0.0
+
+    def frames_at(names, t0, dt):
+        both = [(t0 + dt * j / len(names), fi[n]) for j, n in enumerate(names)]
+        fr.extend(both)
+        frn.extend(both)
 
     def hold(names, dt, cell):
         # Feet planted: the frames play where he stands.
         nonlocal t
-        fr.extend((t + dt * j / len(names), fi[n]) for j, n in enumerate(names))
+        frames_at(names, t, dt)
         row.append((t, cell[1]))
         pos.append((t, *at(cell)))
         t += dt
@@ -314,7 +328,7 @@ def subaru(cells, c, start, feel=None):
         nonlocal t
         (x0, y0), (x1, y1) = at(a), at(b)
         top = lift + abs(y1 - y0) / 2
-        fr.extend((t + air * j / len(names), fi[n]) for j, n in enumerate(names))
+        frames_at(names, t, air)
         row.extend([(t, a[1]), (t + air / 2, b[1])])
         for s in range(9):
             u = s / 8 + feel["hang"] * math.sin(2 * math.pi * s / 8) / (2 * math.pi)
@@ -334,20 +348,22 @@ def subaru(cells, c, start, feel=None):
         hold(["land0", "land1", "land2"], feel["land"], b)
 
     def run(a, b):
-        # 11 frames over the clip's 0.73 s cycle, at the speed the planted foot moves.
-        nonlocal t, phase
+        # Along the street at the speed the planted foot moves, the gait's cycle carrying on from the last stretch.
+        nonlocal t, street
         (x0, y0), (x1, y1) = at(a), at(b)
         dur = abs(x1 - x0) / speed
-        n = max(1, round(dur / (.733 / 11)))
-        fr.extend((t + dur * j / n, fi[f"run{(phase + j) % 11}"]) for j in range(n))
-        phase += n
+        street += dur
+        for p, out, grow in ((0, fr, 1), (1, frn, 1.6)):
+            n = max(1, round(dur / (cycle * grow / frames)))
+            out.extend((t + dur * j / n, fi[f"{gait}{(phase[p] + j) % frames}"]) for j in range(n))
+            phase[p] += n
         row.append((t, a[1]))
         pos.append((t, x0, y0))
         t += dur
         pos.append((t, x1, y1))
 
     def cross(cur, w1, how):
-        # From `cur` to week `w1`: jump onto built weeks, down into empty ones, and run along the street.
+        # From `cur` to week `w1`: jump onto built weeks, down into empty ones, and along the street.
         for w in range(cur[0] + 1, w1 + 1):
             nxt = pick(w, cur[1])
             if w in built or how != "run" and cur[0] in built:
@@ -367,12 +383,12 @@ def subaru(cells, c, start, feel=None):
         g0, g1 = gap
         save, how = cross(cur, g0 - 1, "stand")
         # First try: down into the gap and along it, until the Witch's shadow rises halfway.
-        p0, f0, r0, t0 = len(pos), len(fr), len(row), t
+        p0, f0, n0, r0, t0 = len(pos), len(fr), len(frn), len(row), t
         mid, _ = cross(save, g0 + (g1 - g0 - 1) // 2, how)
-        went, steps, rows = pos[p0:], fr[f0:], row[r0:]
+        went, steps, stepsn, rows = pos[p0:], fr[f0:], frn[n0:], row[r0:]
         died = t
         x, y = at(mid)
-        fr.append((t, fi["fall"]))
+        frames_at(["fall"], t, 0)
         row.append((t, mid[1]))
         pos.append((t, x, y))
         t += .5
@@ -385,7 +401,7 @@ def subaru(cells, c, start, feel=None):
         pos.append((t, x, y))
         pos.extend((t + (died - pt) * r, px, py) for pt, px, py in reversed(went))
         # A frame or row shown from one event to the next plays back from the next one's time.
-        for events, out in ((steps, fr), (rows, row)):
+        for events, out in ((steps, fr), (stepsn, frn), (rows, row)):
             ends = [et for et, _ in events[1:]] + [died]
             out.extend((t + (died - end) * r, v) for (_, v), end in zip(reversed(events), reversed(ends)))
         t += (died - t0) * r
@@ -399,12 +415,16 @@ def subaru(cells, c, start, feel=None):
         fly(save, land, ["leap0", "leap1", "leap2", "leap3"], .45 + .05 * (g1 - g0), feel["lift"] + 6 + 1.5 * (g1 - g0))
         hold(["land0", "land1", "land2"], feel["land"], land)
         cur, _ = cross(land, weeks - 1, "landed")
-        said = ("Subaru jumps from roof to roof and runs the empty streets; in the longest stretch of empty weeks he dies, "
-                "returns by death to the roof before it, and clears it in one leap on his way to today.")
+        said = (f"Subaru jumps from roof to roof and {gait}s the empty streets; in the longest stretch of empty weeks he "
+                "dies, returns by death to the roof before it, and clears it in one leap on his way to today.")
     else:
         cur, _ = cross(cur, weeks - 1, "stand")
-        said = "Subaru jumps from roof to roof and runs the empty streets, all the way to today."
+        said = f"Subaru jumps from roof to roof and {gait}s the empty streets, all the way to today."
     hold(["recover0", "recover1", "stand"], feel["standup"] * 2, cur)
+    if t > CAP and pace == 1:
+        # Too long: walk the streets fast enough to finish within CAP, if HURRY allows.
+        over = t - CAP
+        return subaru(cells, c, start, feel, gait=gait, pace=min(HURRY, street / (street - over)) if street > over else HURRY)
     total = t + REST
     pos.append((total, *at(cur)))
     alpha += [(total - .2, 1), (total, 0)]
@@ -413,7 +433,7 @@ def subaru(cells, c, start, feel=None):
     keys = lambda name, rows: f"@keyframes {name}{{" + "".join(f"{pct(t)}{{{r}}}" for t, r in rows) + "}"
     loop = lambda name, ease: f"animation:{name} {total:.2f}s {ease} {start:.2f}s infinite both"
     css = [keys("sbp", [(t, f"transform:translate({x:.1f}px,{y:.1f}px)") for t, x, y in pos]),
-           keys("sbf", [(t, f"transform:translateX({-i * fw:.1f}px)") for t, i in fr]),
+           *(keys(name, [(t, f"transform:translateX({-i * fw:.1f}px)") for t, i in out]) for name, out in (("sbf", fr), ("sbfn", frn))),
            keys("sbo", [(t, f"opacity:{a}") for t, a in alpha]),
            f".sbp{{{loop('sbp', 'linear')}}}.sbf{{{loop('sbf', 'step-end')}}}.sbo{{{loop('sbo', 'linear')}}}"]
     for d in range(7):
@@ -421,14 +441,16 @@ def subaru(cells, c, start, feel=None):
         flips = [(t, r == d) for j, (t, r) in enumerate(row) if j == 0 or (r == d) != (row[j - 1][1] == d)]
         css.append(keys(f"sbr{d}", [(t, f"visibility:{'visible' if on else 'hidden'}") for t, on in flips + [(total, flips[-1][1])]]))
         css.append(f".sbr{d}{{{loop(f'sbr{d}', 'step-end')}}}")
-    front = []  # the Witch's shadow and the afterimages, drawn in front of every row
+    front, shadow = [], ""  # the afterimages, drawn in front of every row, and the Witch's shadow
     if gap:
         css.append(keys("sbg", [(0, "opacity:0"), (rewind, "opacity:.4"), (back + .1, "opacity:0")]))
         css.append(f".sbg{{{loop('sbg', 'step-end')}}}")
         css.append(keys("sbw", [(0, "transform:scale(0);opacity:0"), (died - .1, "transform:scale(0);opacity:.8"),
-                                (died + .3, "transform:scale(1);opacity:.8"), (back, "transform:scale(1.2);opacity:0")]))
+                                (died + .3, "transform:scale(1);opacity:.8"), (back, "transform:scale(1.2);opacity:0"),
+                                # Without an end frame it eases back to full size and opacity by the loop's end.
+                                (total, "transform:scale(1.2);opacity:0")]))
         css.append(f".sbw{{transform-box:fill-box;transform-origin:center;{loop('sbw', 'ease-out')}}}")
-        front.append(f'<ellipse class="sbw" cx="{x:.1f}" cy="{y:.1f}" rx="30" ry="10" fill="{c["witch"]}"/>')
+        shadow = f'<g class="sb"><ellipse class="sbw" cx="{x:.1f}" cy="{y:.1f}" rx="30" ry="10" fill="{c["witch"]}"/></g>'
     gx, gy = f["ground"]
     # The outline is its own layer under an unfiltered Subaru: WebKit (Safari, the GitHub app) renders filters at low
     # resolution, and a Subaru passed through one comes out blurred and washed out.
@@ -451,13 +473,16 @@ def subaru(cells, c, start, feel=None):
     slots = [f'<g class="sb sbr{d}"><g class="sbo"><g filter="url(#sbl)">{body()}</g>{body()}</g></g>' for d in range(7)]
     slots[0] = defs + slots[0]
     slots[6] += f'<g class="sb">{"".join(front)}</g>'
+    if gap:
+        # The shadow lies on the street where he dies, under him, behind the rows in front of it.
+        slots[mid[1]] = shadow + slots[mid[1]]
     # Reduced motion: he just stands on today's roof.
     x, y = at(cur)
     stand = f'<g clip-path="url(#sbc)"><use href="#sb" x="{-fi["stand"] * fw:.1f}"/></g>'
     slots[cur[1]] += (f'<g class="sbx" transform="translate({x:.1f} {y:.1f})"><g class="sz">'
                       f'<g filter="url(#sbl)">{stand}</g>{stand}</g></g>')
     css.append(f".sbx{{display:none}}@media (prefers-reduced-motion:reduce){{.sb{{display:none}}.sbx{{display:inline}}}}"
-               f"{NARROW}{{.sz{{transform:scale(1.6)}}}}")
+               f"{NARROW}{{.sz{{transform:scale(1.6)}}.sbf{{animation-name:sbfn}}}}")
     return "".join(css), slots, said
 
 
