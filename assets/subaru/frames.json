@@ -1,1 +1,1 @@
-{"size": [98, 114], "ground": [44.0, 105.7], "px_per_m": 60.0}
+{"size": [102, 124], "ground": [41.0, 115.3], "px_per_m": 60.0, "run_px_s": 238.4, "frames": ["run0", "run1", "run2", "run3", "run4", "run5", "run6", "run7", "run8", "run9", "run10", "crouch0", "crouch1", "crouch2", "push0", "push1", "air0", "air1", "air2", "air3", "land0", "land1", "land2", "recover0", "recover1", "leap0", "leap1", "leap2", "leap3", "fall", "stand"]}

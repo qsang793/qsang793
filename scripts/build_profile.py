@@ -33,6 +33,11 @@ ANIME = [
 ]
 # Subaru's frames, rendered by scripts/render_subaru.py; frames.json says where his feet are and how big he is.
 SUBARU = HERE.parent / "assets" / "subaru"
+# How Subaru's jumps feel, in seconds and SVG units. Standing up, crouch, push and land happen with his feet on the
+# roof; only the air moves him. Air grows by `rise` per unit of height to climb, the arc clears the higher roof by `lift`, and
+# `hang` slows him around the top.
+FEEL = dict(standup=.2, crouch=.16, push=.08, air=.42, rise=.006, lift=8, land=.14, hang=.6)
+REST = 8  # seconds on today's roof between Attempts
 # One line per loop: typed, held, then rewound before the next loop tries again.
 # The robot line goes first: it is the one that is about the actual work, and reduced motion shows only it.
 LINES = [
@@ -81,14 +86,13 @@ def load_portraits():
 
 
 def load_subaru():
-    # Like the portraits: each frame once, drawn with <use> by both themes and by the afterimages.
+    # Like the portraits: the strip once, drawn with <use> by both themes and by the afterimages.
     # A <g>, not a <symbol>, so the frame can hang left of and above its feet, which sit at 0,0.
     f = json.loads((SUBARU / "frames.json").read_text())
     k = 40 / (1.8 * f["px_per_m"])  # Subaru is 1.8 m and drawn 40 units tall
     (w, h), (gx, gy) = f["size"], f["ground"]
-    return "<defs>" + "".join(
-        f'<g id="sb-{n}"><image href="data:image/webp;base64,{base64.b64encode((SUBARU / f"{n}.webp").read_bytes()).decode()}" x="{-gx * k:.1f}" y="{-gy * k:.1f}" width="{w * k:.1f}" height="{h * k:.1f}"/></g>'
-        for n in ("run0", "run1", "run2", "jump", "fall", "stand")) + "</defs>"
+    return (f'<defs><g id="sb"><image href="data:image/webp;base64,{base64.b64encode((SUBARU / "subaru.webp").read_bytes()).decode()}" '
+            f'x="{-gx * k:.1f}" y="{-gy * k:.1f}" width="{w * len(f["frames"]) * k:.1f}" height="{h * k:.1f}"/></g></defs>')
 
 
 def svg(w, h, alt, body):
@@ -211,13 +215,14 @@ def clock(days, c):
 def iso(days, top, width, hmax, c, now=False, rise=False):
     """One block per day: weeks run to the right, weekdays toward the viewer, height grows with contributions.
 
-    Returns the polygons, scaled to `width`, their height, and each week's roof for Subaru: (x, y, built),
-    the middle of its tallest block's roof, or of today's in the last week.
+    Returns the polygons as one string per weekday row, back to front, scaled to `width`; their height;
+    and every day's roof for Subaru:
+    {(week, weekday): (x, y, height, contributions)}, x and y at the middle of the roof.
     """
     weeks = days[-1][0] + 1
     k = width / (7 * 6 + weeks * 15)
     wx, wy, dx, dy = 15 * k, 2.2 * k, -6 * k, 6 * k
-    blocks, ys, tops, built = [], [], {}, {}
+    blocks, ys, roofs = [], [], {}
     for i, (w, d, n) in enumerate(days):
         h = 2 * k + (hmax * math.sqrt(n / top) if n else 0)
         x0, y0 = w * wx + d * dx, w * wy + d * dy
@@ -227,14 +232,12 @@ def iso(days, top, width, hmax, c, now=False, rise=False):
                 [(x0, y0), (x0 + wx, y0 + wy), (x0 + wx + dx, y0 + wy + dy), (x0 + dx, y0 + dy)]]
         blocks.append((d, w, base, h, n, now and i == len(days) - 1))
         ys += [y0 - h, y0 + wy + dy]
-        last = i == len(days) - 1
-        if w not in tops or h > tops[w][0] or last:
-            tops[w] = (h, mx, my - h)
-        built[w] = built.get(w, False) or bool(n) or last
+        roofs[w, d] = (mx, my - h, h, n)
     pts = lambda p: " ".join(f"{x - 7 * dx:.1f},{y - min(ys):.1f}" for x, y in p)
-    out = []
+    rows = [[] for _ in range(7)]
     for d, w, (a, b, cc, e), h, n, today in sorted(blocks):
         up = lambda p: (p[0], p[1] - h)
+        out = rows[d]
         if not n and not today:
             out.append(f'<polygon points="{pts([up(a), up(b), up(cc), up(e)])}" fill="{c["faint"]}"/>')
             continue
@@ -243,135 +246,214 @@ def iso(days, top, width, hmax, c, now=False, rise=False):
         out.append(f'<polygon points="{pts([e, cc, up(cc), up(e)])}" fill="{c["south"]}"/>')
         out.append(f'<polygon points="{pts([b, cc, up(cc), up(b)])}" fill="{c["east"]}"/>')
         out.append(f'<polygon points="{pts([up(a), up(b), up(cc), up(e)])}" fill="{c["now"] if today else c["witch"]}"/></g>')
-    roofs = [(tops[w][1] - 7 * dx, tops[w][2] - min(ys), built[w]) for w in sorted(tops)]
-    return "".join(out), max(ys) - min(ys), roofs
+    cells = {wd: (x - 7 * dx, y - min(ys), h, n) for wd, (x, y, h, n) in roofs.items()}
+    return ["".join(r) for r in rows], max(ys) - min(ys), cells
 
 
-def subaru(roofs, c, start):
-    """One Attempt as CSS keyframes: Subaru hops a roof a week, dies once in the longest stretch of empty weeks,
-    returns to the Save point before it, clears it, and rests on today's roof until the next Attempt.
+def subaru(cells, c, start, feel=None):
+    """One Attempt as CSS keyframes. Subaru jumps roof to roof a week at a time, keeping to his weekday where he can,
+    and runs the street through empty weeks. He dies once, in the longest stretch of empty weeks, returns to the
+    Save point before it, clears it in one leap, and rests on today's roof until the next Attempt.
 
-    `roofs` comes from iso(); `start` waits out the City's rise. Returns the style, the drawing and an alt sentence.
+    `cells` comes from iso(); `start` waits out the City's rise. Returns the style, the drawing and an alt sentence.
     """
-    hop, rest = .22, 8
+    feel = feel or FEEL
+    f = json.loads((SUBARU / "frames.json").read_text())
+    k = 40 / (1.8 * f["px_per_m"])
+    fw, fi = f["size"][0] * k, {n: i for i, n in enumerate(f["frames"])}
+    # Running any faster or slower than the planted foot slides back would make it skate.
+    speed = f["run_px_s"] * k
+    today = max(cells)
+    weeks = today[0] + 1
+    built = {w for (w, _), (*_, n) in cells.items() if n} | {today[0]}
+
+    def pick(w, lane):
+        # Today's block in the last week; else the built block nearest his weekday, the taller on a tie;
+        # in an empty week, the street on his weekday.
+        if w == today[0]:
+            return today
+        days = [d for d in range(7) if (w, d) in cells and (w not in built or cells[w, d][3])]
+        return w, min(days, key=lambda d: (abs(d - lane), -cells[w, d][2]))
+
     # Stretches of empty weeks with a built week on each side, as (first empty week, first built week after).
     gaps, first = [], None
-    for i, (*_, built) in enumerate(roofs):
-        if not built and first is None and i and roofs[i - 1][2]:
-            first = i
-        elif built and first is not None:
-            gaps.append((first, i))
+    for w in range(1, weeks):
+        if w not in built and first is None and w - 1 in built:
+            first = w
+        elif w in built and first is not None:
+            gaps.append((first, w))
             first = None
     # The longest one; between equals, the one nearest today.
     gap = max(gaps, key=lambda g: (g[1] - g[0], g[0]), default=None)
-    xy = lambda i: roofs[i][:2]
-    t, pos, frame, alpha = 0, [], [], []  # (time, x, y), (time, frame), (time, opacity)
 
-    def arc(a, b, dur, lift):
+    at = lambda cell: cells[cell][:2]
+    # (time, x, y), (time, frame), (time, opacity), and (time, weekday row he is drawn in, so rows in front hide him)
+    t, phase, pos, fr, alpha, row = 0.0, 0, [], [], [(0, 0), (.2, 1)], []
+
+    def hold(names, dt, cell):
+        # Feet planted: the frames play where he stands.
         nonlocal t
-        (x0, y0), (x1, y1), t0 = a, b, t
-        for f in (.25, .5, .75, 1):
-            t = t0 + dur * f
-            pos.append((t, x0 + (x1 - x0) * f, y0 + (y1 - y0) * f - 4 * (lift + abs(y1 - y0) / 2) * f * (1 - f)))
+        fr.extend((t + dt * j / len(names), fi[n]) for j, n in enumerate(names))
+        row.append((t, cell[1]))
+        pos.append((t, *at(cell)))
+        t += dt
+        pos.append((t, *at(cell)))
 
-    def hops(a, b):
-        for i in range(a, b):
-            arc(xy(i), xy(i + 1), hop, 4)
+    def fly(a, b, names, air, lift):
+        # The body only travels in the air, on an arc that clears the higher roof by `lift`;
+        # `hang` slows it around the top. Halfway, he moves into the row he lands in.
+        nonlocal t
+        (x0, y0), (x1, y1) = at(a), at(b)
+        top = lift + abs(y1 - y0) / 2
+        fr.extend((t + air * j / len(names), fi[n]) for j, n in enumerate(names))
+        row.extend([(t, a[1]), (t + air / 2, b[1])])
+        for s in range(9):
+            u = s / 8 + feel["hang"] * math.sin(2 * math.pi * s / 8) / (2 * math.pi)
+            pos.append((t + air * s / 8, x0 + (x1 - x0) * u, y0 + (y1 - y0) * u - 4 * top * u * (1 - u)))
+        t += air
 
-    pos.append((0, *xy(0)))
-    frame.append((0, "run"))
-    alpha += [(0, 0), (.2, 1)]
-    t = .2
-    pos.append((t, *xy(0)))
+    def hop(a, b, how):
+        # He lands in a crouch, stands up straight, then crouches again and pushes off before he leaves the roof.
+        # `how` he is when the jump starts: "landed" (still crouched), "stand", or "run" (he takes off in stride).
+        if how == "landed":
+            hold(["recover0", "recover1", "stand"], feel["standup"], a)
+        if how != "run":
+            hold(["crouch0", "crouch1", "crouch2"], feel["crouch"], a)
+            hold(["push0", "push1"], feel["push"], a)
+        rise = abs(cells[b][1] - cells[a][1])
+        fly(a, b, ["air0", "air1", "air2", "air3"], feel["air"] + feel["rise"] * rise, feel["lift"])
+        hold(["land0", "land1", "land2"], feel["land"], b)
+
+    def run(a, b):
+        # 11 frames over the clip's 0.73 s cycle, at the speed the planted foot moves.
+        nonlocal t, phase
+        (x0, y0), (x1, y1) = at(a), at(b)
+        dur = abs(x1 - x0) / speed
+        n = max(1, round(dur / (.733 / 11)))
+        fr.extend((t + dur * j / n, fi[f"run{(phase + j) % 11}"]) for j in range(n))
+        phase += n
+        row.append((t, a[1]))
+        pos.append((t, x0, y0))
+        t += dur
+        pos.append((t, x1, y1))
+
+    def cross(cur, w1, how):
+        # From `cur` to week `w1`: jump onto built weeks, down into empty ones, and run along the street.
+        for w in range(cur[0] + 1, w1 + 1):
+            nxt = pick(w, cur[1])
+            if w in built or how != "run" and cur[0] in built:
+                hop(cur, nxt, how)
+                how = "landed"
+            else:
+                run(cur, nxt)
+                how = "run"
+            cur = nxt
+        return cur, how
+
+    days0 = [d for d in range(7) if (0, d) in cells]
+    cur = (0, max(days0, key=lambda d: cells[0, d][2]))
+    hold(["stand"], .4, cur)
     rewind = None
     if gap:
-        save, land = gap[0] - 1, gap[1]
-        hops(0, save)
-        # The leap falls short: over the middle of the gap he drops below the street.
-        x, y = xy(gap[0] + (gap[1] - gap[0] - 1) // 2)
-        leap0 = len(pos) - 1
-        frame.append((t, "jump"))
-        frame.append((t + .4, "fall"))
-        arc(xy(save), (x, y + 14), .8, 14)
-        leap = pos[leap0:]
-        alpha += [(t - .25, 1), (t, 0)]
+        g0, g1 = gap
+        save, how = cross(cur, g0 - 1, "stand")
+        # First try: down into the gap and along it, until the Witch's shadow rises halfway.
+        p0, f0, r0, t0 = len(pos), len(fr), len(row), t
+        mid, _ = cross(save, g0 + (g1 - g0 - 1) // 2, how)
+        went, steps, rows = pos[p0:], fr[f0:], row[r0:]
         died = t
-        # The Witch's shadow takes him, then time runs back along the leap to the Save point.
-        t += .7
-        rewind = t
-        alpha += [(t, 0), (t + .05, .6)]
-        frame.append((t, "fall"))
-        for j, (_, px, py) in enumerate(reversed(leap)):
-            pos.append((t + .15 * j, px, py))
-        frame.append((t + .3, "jump"))
-        t += .15 * (len(leap) - 1)
-        back = t
-        alpha += [(t, .6), (t + .1, 1)]
-        frame.append((t, "stand"))
+        x, y = at(mid)
+        fr.append((t, fi["fall"]))
+        row.append((t, mid[1]))
+        pos.append((t, x, y))
         t += .5
-        pos.append((t, *xy(save)))
-        frame.append((t, "jump"))
-        arc(xy(save), xy(land), .5 + .05 * (land - save), 14 + 2 * (land - save))
-        frame.append((t, "run"))
-        hops(land, len(roofs) - 1)
-        said = ("Subaru runs the rooftops a week per hop, dies once in the longest stretch of empty weeks, "
-                "returns by death to the roof before it, and makes it across to today.")
+        pos.append((t, x, y + 10))
+        alpha += [(died + .2, 1), (t, 0)]
+        t += .3
+        rewind = t
+        # Time runs back along the same path and frames, at up to twice the speed, trailing afterimages.
+        r = min(.5, 1.2 / (died - t0))
+        pos.append((t, x, y))
+        pos.extend((t + (died - pt) * r, px, py) for pt, px, py in reversed(went))
+        # A frame or row shown from one event to the next plays back from the next one's time.
+        for events, out in ((steps, fr), (rows, row)):
+            ends = [et for et, _ in events[1:]] + [died]
+            out.extend((t + (died - end) * r, v) for (_, v), end in zip(reversed(events), reversed(ends)))
+        t += (died - t0) * r
+        back = t
+        alpha += [(rewind, 0), (rewind + .05, .6), (back, .6), (back + .1, 1)]
+        hold(["stand"], .5, save)
+        # Second try: he knows now, and clears the whole gap in one leap.
+        land = pick(g1, save[1])
+        hold(["crouch0", "crouch1", "crouch2"], feel["crouch"] * 1.5, save)
+        hold(["push0", "push1"], feel["push"], save)
+        fly(save, land, ["leap0", "leap1", "leap2", "leap3"], .45 + .05 * (g1 - g0), feel["lift"] + 6 + 1.5 * (g1 - g0))
+        hold(["land0", "land1", "land2"], feel["land"], land)
+        cur, _ = cross(land, weeks - 1, "landed")
+        said = ("Subaru jumps from roof to roof and runs the empty streets; in the longest stretch of empty weeks he dies, "
+                "returns by death to the roof before it, and clears it in one leap on his way to today.")
     else:
-        hops(0, len(roofs) - 1)
-        said = "Subaru runs the rooftops a week per hop, all the way to today."
-    frame.append((t, "stand"))
-    total = t + rest
-    pos.append((total, *xy(-1)))
+        cur, _ = cross(cur, weeks - 1, "stand")
+        said = "Subaru jumps from roof to roof and runs the empty streets, all the way to today."
+    hold(["recover0", "recover1", "stand"], feel["standup"] * 2, cur)
+    total = t + REST
+    pos.append((total, *at(cur)))
     alpha += [(total - .2, 1), (total, 0)]
+
     pct = lambda t: f"{100 * t / total:.2f}%"
     keys = lambda name, rows: f"@keyframes {name}{{" + "".join(f"{pct(t)}{{{r}}}" for t, r in rows) + "}"
-    css = [keys("sbp", [(t, f"transform:translate({x:.1f}px,{y:.1f}px)") for t, x, y in pos]),
-           keys("sbo", [(t, f"opacity:{a}") for t, a in alpha])]
     loop = lambda name, ease: f"animation:{name} {total:.2f}s {ease} {start:.2f}s infinite both"
-    css.append(f".sbp{{{loop('sbp', 'linear')}}}.sbo{{{loop('sbo', 'linear')}}}")
-    for m in ("run", "jump", "fall", "stand"):
-        css.append(keys(f"sb{m}", [(t, f"opacity:{int(f == m)}") for t, f in frame + [(total, frame[-1][1])]]))
-        css.append(f".sb{m}{{{loop(f'sb{m}', 'step-end')}}}")
-    # Three run frames take turns, whatever else is moving.
-    css.append("@keyframes sbc{0%{opacity:1}33.3%,100%{opacity:0}}.sbc{animation:sbc .27s step-end infinite both}")
-    out = []
+    css = [keys("sbp", [(t, f"transform:translate({x:.1f}px,{y:.1f}px)") for t, x, y in pos]),
+           keys("sbf", [(t, f"transform:translateX({-i * fw:.1f}px)") for t, i in fr]),
+           keys("sbo", [(t, f"opacity:{a}") for t, a in alpha]),
+           f".sbp{{{loop('sbp', 'linear')}}}.sbf{{{loop('sbf', 'step-end')}}}.sbo{{{loop('sbo', 'linear')}}}"]
+    for d in range(7):
+        # Only the moments this row's copy appears or disappears.
+        flips = [(t, r == d) for j, (t, r) in enumerate(row) if j == 0 or (r == d) != (row[j - 1][1] == d)]
+        css.append(keys(f"sbr{d}", [(t, f"visibility:{'visible' if on else 'hidden'}") for t, on in flips + [(total, flips[-1][1])]]))
+        css.append(f".sbr{d}{{{loop(f'sbr{d}', 'step-end')}}}")
+    front = []  # the Witch's shadow and the afterimages, drawn in front of every row
     if gap:
         css.append(keys("sbg", [(0, "opacity:0"), (rewind, "opacity:.4"), (back + .1, "opacity:0")]))
         css.append(f".sbg{{{loop('sbg', 'step-end')}}}")
         css.append(keys("sbw", [(0, "transform:scale(0);opacity:0"), (died - .1, "transform:scale(0);opacity:.8"),
                                 (died + .3, "transform:scale(1);opacity:.8"), (back, "transform:scale(1.2);opacity:0")]))
         css.append(f".sbw{{transform-box:fill-box;transform-origin:center;{loop('sbw', 'ease-out')}}}")
-        out.append(f'<ellipse class="sbw" cx="{x:.1f}" cy="{y:.1f}" rx="30" ry="10" fill="{c["witch"]}"/>')
+        front.append(f'<ellipse class="sbw" cx="{x:.1f}" cy="{y:.1f}" rx="30" ry="10" fill="{c["witch"]}"/>')
+    gx, gy = f["ground"]
+    defs = ('<defs><filter id="sbl" x="-20%" y="-20%" width="140%" height="140%">'
+               f'<feMorphology in="SourceAlpha" operator="dilate" radius=".8" result="d"/><feFlood flood-color="{c["ink"]}"/>'
+               '<feComposite in2="d" operator="in"/><feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge></filter>'
+               f'<filter id="sbt"><feFlood flood-color="{c["witch"]}"/><feComposite in2="SourceAlpha" operator="in"/></filter>'
+               # One frame's window onto the strip, which slides under it.
+               f'<clipPath id="sbc"><rect x="{-gx * k:.1f}" y="{-gy * k:.1f}" width="{fw:.1f}" height="{f["size"][1] * k:.1f}"/></clipPath></defs>')
 
     def body(delay=None):
         s = f' style="animation-delay:{delay:.2f}s"' if delay is not None else ""
-        run = "".join(f'<use class="sbc" href="#sb-run{i}" style="animation-delay:-{.09 * (3 - i) % .27:.2f}s"/>' for i in range(3))
-        return (f'<g class="sbp"{s}><g class="sz"><g class="sbrun"{s}>{run}</g>'
-                + "".join(f'<g class="sb{m}"{s}><use href="#sb-{m}"/></g>' for m in ("jump", "fall", "stand")) + "</g></g>")
+        return f'<g class="sbp"{s}><g class="sz"><g clip-path="url(#sbc)"><g class="sbf"{s}><use href="#sb"/></g></g></g></g>'
 
-    out.append('<defs><filter id="sbl" x="-20%" y="-20%" width="140%" height="140%">'
-               f'<feMorphology in="SourceAlpha" operator="dilate" radius=".8" result="d"/><feFlood flood-color="{c["ink"]}"/>'
-               '<feComposite in2="d" operator="in"/><feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge></filter>'
-               f'<filter id="sbt"><feFlood flood-color="{c["witch"]}"/><feComposite in2="SourceAlpha" operator="in"/></filter></defs>')
     if gap:
         # Afterimages trail him back, each a little later along the same path, only while time runs back.
-        for k in (3, 2, 1):
-            out.append(f'<g class="sbg" style="animation-delay:{start + .06 * k:.2f}s" filter="url(#sbt)">{body(start + .06 * k)}</g>')
-    out.append(f'<g class="sbo" filter="url(#sbl)">{body()}</g>')
-    out = f'<g class="sb">{"".join(out)}</g>'
+        for j in (3, 2, 1):
+            front.append(f'<g class="sbg" style="animation-delay:{start + .06 * j:.2f}s" filter="url(#sbt)">{body(start + .06 * j)}</g>')
+    # He is drawn after each weekday row and shown only after the row he is in, so the rows in front hide him.
+    slots = [f'<g class="sb sbr{d}"><g class="sbo" filter="url(#sbl)">{body()}</g></g>' for d in range(7)]
+    slots[0] = defs + slots[0]
+    slots[6] += f'<g class="sb">{"".join(front)}</g>'
     # Reduced motion: he just stands on today's roof.
-    x, y = xy(-1)
-    out += f'<g class="sbx" transform="translate({x:.1f} {y:.1f})" filter="url(#sbl)"><g class="sz"><use href="#sb-stand"/></g></g>'
+    x, y = at(cur)
+    slots[cur[1]] += (f'<g class="sbx" transform="translate({x:.1f} {y:.1f})" filter="url(#sbl)"><g class="sz"><g clip-path="url(#sbc)">'
+                      f'<use href="#sb" x="{-fi["stand"] * fw:.1f}"/></g></g></g>')
     css.append(f".sbx{{display:none}}@media (prefers-reduced-motion:reduce){{.sb{{display:none}}.sbx{{display:inline}}}}"
                f"{NARROW}{{.sz{{transform:scale(1.6)}}}}")
-    return "".join(css), out, said
+    return "".join(css), slots, said
 
 
 def city(total, days, c, frames=""):
     # `frames` is load_subaru(): pass it here, or to adaptive() when one image holds both themes.
-    body, bh, roofs = iso(days, max(n for *_, n in days) or 1, WIDTH - 2 * PAD, 44, c, now=True, rise=True)
+    body, bh, cells = iso(days, max(n for *_, n in days) or 1, WIDTH - 2 * PAD, 44, c, now=True, rise=True)
     # Subaru starts once the last week has risen.
-    run_css, run, said = subaru(roofs, c, len(roofs) * 0.03 + .8)
+    run_css, slots, said = subaru(cells, c, (days[-1][0] + 1) * 0.03 + .8)
     head = 32
     h = PAD + head + bh + PAD
     out = [
@@ -383,7 +465,7 @@ def city(total, days, c, frames=""):
         # 不夜城, the city that never sleeps, sits in the empty corner above the later weeks.
         kanji("不夜城", WIDTH - PAD, PAD + 46, 48, c["line"], "end"),
         f'<g class="count">{text(f"{total} contributions in the last year", PAD, PAD + 14, 14, c["soft"])}</g>',
-        f'<g transform="translate({PAD} {PAD + head})">{body}{run}</g>',
+        f'<g transform="translate({PAD} {PAD + head})">{"".join(r + s for r, s in zip(body, slots))}</g>',
     ]
     alt = f"{total} contributions in the last year, drawn as an isometric city, one block per day. Taller blocks mean more contributions. {said}"
     return svg(WIDTH, h, alt, "".join(out))

@@ -25,7 +25,7 @@ One run of Subaru across the City, from the first week to today. Attempts repeat
 _Avoid_: Run, loop, try
 
 **Subaru**:
-Natsuki Subaru, at his own proportions, running the City's rooftops one week per hop on every Attempt.
+Natsuki Subaru, at his own proportions, crossing the City on every Attempt: he jumps from roof to roof, a week at a time, and runs the streets where the weeks are empty.
 _Avoid_: Mascot, chibi, sprite, runner
 
 **Save point**:
